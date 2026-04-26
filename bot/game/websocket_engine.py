@@ -62,9 +62,10 @@ def _update_dz_knowledge(view: dict):
 class WebSocketEngine:
     """Manages the gameplay WebSocket session."""
 
-    def __init__(self, game_id: str, agent_id: str):
+    def __init__(self, game_id: str, agent_id: str, api_key: str = ""):
         self.game_id = game_id
         self.agent_id = agent_id
+        self.api_key = api_key
         self.action_sender = ActionSender()
         self.ws = None
         self.game_result = None
@@ -81,7 +82,7 @@ class WebSocketEngine:
         Main gameplay loop. Returns game result dict.
         Per gotchas.md: connect with X-API-Key only, no gameId/agentId params.
         """
-        api_key = get_api_key()
+        api_key = self.api_key or get_api_key()
         headers = {
             "X-API-Key": api_key,
             "X-Version": SKILL_VERSION,

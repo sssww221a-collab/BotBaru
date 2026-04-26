@@ -4,6 +4,7 @@ State machine: setup → join → play → settle → repeat.
 Respects First-Run Intake config flags for Railway/Docker deployment.
 """
 import asyncio
+from pathlib import Path
 from bot.api_client import MoltyAPI, APIError
 from bot.dashboard.state import dashboard_state
 from bot.state_router import determine_state, NO_ACCOUNT, NO_IDENTITY, IN_GAME, READY_PAID, READY_FREE
@@ -21,6 +22,7 @@ from bot.credentials import load_credentials, get_api_key
 from bot.config import (
     ADVANCED_MODE, ROOM_MODE, AUTO_WHITELIST,
     AUTO_SC_WALLET, ENABLE_MEMORY, AUTO_IDENTITY,
+    MEMORY_DIR,
 )
 from bot.utils.logger import get_logger
 
@@ -30,12 +32,19 @@ log = get_logger(__name__)
 class Heartbeat:
     """Main heartbeat loop — runs forever, manages the full agent lifecycle."""
 
-    def __init__(self):
+    def __init__(self, creds: dict | None = None, profile_name: str | None = None):
         self.api: MoltyAPI | None = None
-        self.memory = AgentMemory()
+        self.creds = creds or {}
+        self.api_key = self.creds.get("api_key", "")
+        self.agent_private_key = self.creds.get("agent_private_key", "")
+        self.owner_eoa = self.creds.get("owner_eoa", "")
+        self.agent_wallet_address = self.creds.get("agent_wallet_address", "")
+        self._agent_key = profile_name or self.creds.get("agent_name", "agent-1") or "agent-1"
+        self._agent_name = self.creds.get("agent_name", profile_name or "Agent") or "Agent"
+        self.memory = AgentMemory(
+            MEMORY_DIR / f"molty-royale-context-{self._agent_key}.json"
+        )
         self.running = True
-        self._agent_key = "agent-1"  # Consistent dashboard key
-        self._agent_name = "Agent"
 
     async def run(self):
         """Entry point — runs the heartbeat loop indefinitely."""
@@ -53,12 +62,12 @@ class Heartbeat:
         log.info("  ROOM_MODE       = %s", ROOM_MODE)
 
         # Phase 0: First-run intake + account setup (retry until success)
-        creds = None
+        creds = self.creds if self.api_key else None
         while self.running and not creds:
             try:
                 creds = await ensure_account_ready()
-                api_key = creds.get("api_key", "") or get_api_key()
-                if not api_key:
+                self.api_key = creds.get("api_key", "") or self.api_key
+                if not self.api_key:
                     log.error("No API key available. Retrying in 60s...")
                     creds = None
                     await asyncio.sleep(60)
@@ -69,17 +78,16 @@ class Heartbeat:
         if not self.running:
             return
 
-        self.api = MoltyAPI(creds.get("api_key", "") or get_api_key())
+        self.api = MoltyAPI(self.api_key or get_api_key())
 
         # Feed dashboard
-        dashboard_state.bots_running = 1
-        dashboard_state.add_log("Bot started", "info")
+        dashboard_state.bots_running += 1
+        dashboard_state.add_log(f"Bot started ({self._agent_key})", "info")
 
         # Load memory (if enabled)
         if ENABLE_MEMORY:
             await self.memory.load()
-            if creds.get("agent_name"):
-                self.memory.set_agent_name(creds["agent_name"])
+            self.memory.set_agent_name(self._agent_name)
         else:
             log.info("Memory system disabled (ENABLE_MEMORY=false)")
 
@@ -102,6 +110,7 @@ class Heartbeat:
 
         if self.api:
             await self.api.close()
+        dashboard_state.bots_running = max(0, dashboard_state.bots_running - 1)
         log.info("Agent stopped.")
 
     async def _heartbeat_cycle(self):
@@ -147,9 +156,9 @@ class Heartbeat:
 
     async def _handle_no_identity(self, me: dict):
         """Setup pipeline: wallet → whitelist → identity. Respects config flags."""
-        creds = load_credentials() or {}
-        owner_eoa = creds.get("owner_eoa", "")
-        agent_eoa = creds.get("agent_wallet_address", "")
+        creds = self.creds or load_credentials() or {}
+        owner_eoa = self.owner_eoa or creds.get("owner_eoa", "")
+        agent_eoa = self.agent_wallet_address or creds.get("agent_wallet_address", "")
 
         if not owner_eoa:
             log.error("Owner EOA not set. Re-run setup.")
@@ -197,7 +206,7 @@ class Heartbeat:
 
         try:
             if room_type == "paid":
-                game_id, agent_id = await join_paid_game(self.api)
+                game_id, agent_id = await join_paid_game(self.api, self.agent_private_key)
             else:
                 game_id, agent_id = await join_free_game(self.api)
         except APIError as e:
@@ -246,7 +255,7 @@ class Heartbeat:
         await self.memory.save()
 
         # Run WebSocket engine — pass agent_key + name for dashboard
-        engine = WebSocketEngine(game_id, agent_id)
+        engine = WebSocketEngine(game_id, agent_id, api_key=self.api_key)
         engine.dashboard_key = self._agent_key
         engine.dashboard_name = self._agent_name
         game_result = await engine.run()

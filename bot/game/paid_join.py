@@ -12,7 +12,7 @@ from bot.utils.logger import get_logger
 log = get_logger(__name__)
 
 
-async def join_paid_game(api: MoltyAPI) -> tuple[str, str]:
+async def join_paid_game(api: MoltyAPI, agent_private_key: str = "") -> tuple[str, str]:
     """
     Join a paid room via EIP-712 signed flow.
     Returns (game_id, agent_id) when registered.
@@ -42,7 +42,7 @@ async def join_paid_game(api: MoltyAPI) -> tuple[str, str]:
     eip712_data = await api.get_join_paid_message(game_id)
 
     # Step 4: Sign with Agent EOA
-    agent_pk = get_agent_private_key()
+    agent_pk = agent_private_key or get_agent_private_key()
     if not agent_pk:
         raise RuntimeError("Agent private key not found")
 
