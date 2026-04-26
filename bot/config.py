@@ -52,22 +52,36 @@ MEMORY_DIR = Path.home() / ".molty-royale"
 MEMORY_FILE = MEMORY_DIR / "molty-royale-context.json"
 
 # ── Environment variables ─────────────────────────────────────────────
-AGENT_NAME = os.getenv("AGENT_NAME", "")
-ADVANCED_MODE = os.getenv("ADVANCED_MODE", "true").lower() == "true"
-ROOM_MODE = os.getenv("ROOM_MODE", "free")  # free | auto | paid
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
-API_KEY = os.getenv("API_KEY", "")
-AGENT_PRIVATE_KEY = os.getenv("AGENT_PRIVATE_KEY", "")
-AGENT_WALLET_ADDRESS = os.getenv("AGENT_WALLET_ADDRESS", "")
-OWNER_EOA = os.getenv("OWNER_EOA", "")
-OWNER_PRIVATE_KEY = os.getenv("OWNER_PRIVATE_KEY", "")
+
+def _strip_quotes(value: str) -> str:
+    if not isinstance(value, str):
+        return value
+    value = value.strip()
+    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
+        return value[1:-1].strip()
+    return value
+
+
+def _env(key: str, default: str = "") -> str:
+    return _strip_quotes(os.getenv(key, default))
+
+
+AGENT_NAME = _env("AGENT_NAME", "")
+ADVANCED_MODE = _env("ADVANCED_MODE", "true").lower() == "true"
+ROOM_MODE = _env("ROOM_MODE", "free")  # free | auto | paid
+LOG_LEVEL = _env("LOG_LEVEL", "INFO")
+API_KEY = _env("API_KEY", "")
+AGENT_PRIVATE_KEY = _env("AGENT_PRIVATE_KEY", "")
+AGENT_WALLET_ADDRESS = _env("AGENT_WALLET_ADDRESS", "")
+OWNER_EOA = _env("OWNER_EOA", "")
+OWNER_PRIVATE_KEY = _env("OWNER_PRIVATE_KEY", "")
 
 # ── First-Run Intake answers (setup.md lines 29-39) ──────────────────
 # These replace the interactive yes/no prompts for Railway/Docker.
 # All default to "yes/auto" so zero-config deployment works.
-AUTO_WHITELIST = os.getenv("AUTO_WHITELIST", "true").lower() == "true"        # Q4: auto-check + approve
-AUTO_SC_WALLET = os.getenv("AUTO_SC_WALLET", "true").lower() == "true"       # Q6: auto-create SC wallet
-ENABLE_MEMORY = os.getenv("ENABLE_MEMORY", "true").lower() == "true"         # Q7: cross-game learning
-ENABLE_AGENT_TOKEN = os.getenv("ENABLE_AGENT_TOKEN", "false").lower() == "true"  # Q8: agent token
-AUTO_IDENTITY = os.getenv("AUTO_IDENTITY", "true").lower() == "true"         # Q9: ERC-8004 auto-register
+AUTO_WHITELIST = _env("AUTO_WHITELIST", "true").lower() == "true"        # Q4: auto-check + approve
+AUTO_SC_WALLET = _env("AUTO_SC_WALLET", "true").lower() == "true"       # Q6: auto-create SC wallet
+ENABLE_MEMORY = _env("ENABLE_MEMORY", "true").lower() == "true"         # Q7: cross-game learning
+ENABLE_AGENT_TOKEN = _env("ENABLE_AGENT_TOKEN", "false").lower() == "true"  # Q8: agent token
+AUTO_IDENTITY = _env("AUTO_IDENTITY", "true").lower() == "true"         # Q9: ERC-8004 auto-register
 

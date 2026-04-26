@@ -1,5 +1,7 @@
 # Railway Variables untuk 5 Agent Molty Royale
 # Copy-paste langsung ke Railway Variables.
+# NOTE: Jangan pakai tanda kutip di dalam nilai env Railway.
+# Contoh benar: PEAXEL1_API_KEY=mr_live_...   Bukan: PEAXEL1_API_KEY="mr_live_..."
 
 AGENT_PROFILES=peaxel1,peaxel2,peaxel3,peaxel4,peaxel5
 ROOM_MODE=free
