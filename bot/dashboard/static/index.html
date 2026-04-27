@@ -80,10 +80,17 @@
     <div class="page" id="page-accounts">
       <div class="card fade-in" style="margin-bottom:20px">
         <h3>Account Control Center</h3>
-        <p>Manage bot profiles and control running agents from one place. Add or update accounts, then start and stop bots instantly.</p>
-        <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <p class="field-help">Gunakan halaman ini untuk menambahkan profil bot dan menjalankannya langsung dari dashboard. Isi data akun, simpan profil, lalu tekan <strong>Start</strong>.</p>
+        <ul class="account-help-list">
+          <li><strong>Profile Name</strong>: nama unik untuk setiap bot.</li>
+          <li><strong>Agent Name</strong>: nama agent yang tampil di game.</li>
+          <li><strong>API Key</strong>: kunci API Molty Royale untuk agent tersebut.</li>
+          <li><strong>Owner EOA</strong>: alamat pemilik untuk whitelist/identity (opsional jika sudah tersetting).</li>
+          <li><strong>Agent Private Key</strong>: diperlukan untuk paid-join / signing bila ada.</li>
+        </ul>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px">
           <button class="button button-primary" onclick="refreshAccounts()">Refresh</button>
-          <button class="button" onclick="resetAccountForm()">Clear Form</button>
+          <button class="button button-secondary" onclick="resetAccountForm()">Clear Form</button>
         </div>
       </div>
 
@@ -91,27 +98,33 @@
         <h4>Add / Update Account Profile</h4>
         <form id="account-form" onsubmit="saveAccount(event)">
           <div class="form-row">
-            <label>Profile Name</label>
-            <input type="text" id="form-profile" placeholder="default" required />
+            <div class="form-group">
+              <label>Profile Name</label>
+              <input type="text" id="form-profile" placeholder="default" required />
+            </div>
+            <div class="form-group">
+              <label>Agent Name</label>
+              <input type="text" id="form-agent-name" placeholder="peaxel4" />
+            </div>
           </div>
           <div class="form-row">
-            <label>Agent Name</label>
-            <input type="text" id="form-agent-name" placeholder="peaxel4" />
+            <div class="form-group">
+              <label>API Key</label>
+              <input type="text" id="form-api-key" placeholder="sk_live_..." required />
+            </div>
+            <div class="form-group">
+              <label>Owner EOA</label>
+              <input type="text" id="form-owner-eoa" placeholder="0x..." />
+            </div>
           </div>
           <div class="form-row">
-            <label>API Key</label>
-            <input type="text" id="form-api-key" placeholder="sk_live_..." required />
-          </div>
-          <div class="form-row">
-            <label>Owner EOA</label>
-            <input type="text" id="form-owner-eoa" placeholder="0x..." />
-          </div>
-          <div class="form-row">
-            <label>Agent Private Key</label>
-            <input type="text" id="form-agent-pk" placeholder="Optional" />
-          </div>
-          <div class="form-row" style="justify-content:flex-end">
-            <button class="button button-primary" type="submit">Save Profile</button>
+            <div class="form-group">
+              <label>Agent Private Key</label>
+              <input type="text" id="form-agent-pk" placeholder="Optional" />
+            </div>
+            <div class="form-group" style="align-self:flex-end;display:flex;justify-content:flex-end;">
+              <button class="button button-primary" type="submit" style="width:100%;">Save Profile</button>
+            </div>
           </div>
         </form>
       </div>
