@@ -170,13 +170,23 @@ class WebSocketEngine:
             self.action_sender.can_act = msg.get("canAct", self.action_sender.can_act)
             self.action_sender.cooldown_remaining_ms = msg.get("cooldownRemainingMs", 0)
 
+            data = msg.get("data", {})
             if success:
-                data = msg.get("data", {})
                 action_msg = data.get("message", "") if isinstance(data, dict) else str(data)
                 log.info("Action OK: %s (canAct=%s)", action_msg, msg.get("canAct"))
-                # Track map usage for learning on next view
+
                 if isinstance(data, dict) and "map" in str(action_msg).lower():
                     self._map_just_used = True
+
+                action_name = msg.get("action") or (data.get("action") if isinstance(data, dict) else None)
+                if action_name == "pickup" and isinstance(data, dict):
+                    item_id = data.get("itemId") or data.get("item_id")
+                    if item_id:
+                        log.info("Pickup succeeded: auto-equip itemId=%s", item_id)
+                        try:
+                            await self._send({"action": "equip", "data": {"itemId": item_id}})
+                        except Exception as exc:
+                            log.warning("Auto-equip failed after pickup: %s", exc)
             else:
                 err = msg.get("error", {})
                 err_code = err.get("code", "") if isinstance(err, dict) else str(err)
