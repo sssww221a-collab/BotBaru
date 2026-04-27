@@ -76,6 +76,7 @@ function render() {
   try { renderHeader(); } catch(e) {}
   try { renderAgentCards(); } catch(e) {}
   try { renderAgentsTable(); } catch(e) {}
+  try { renderAccountsPage(); } catch(e) {}
   try { renderDataTable(); } catch(e) {}
   try { renderLogs(); } catch(e) {}
 }
@@ -234,7 +235,6 @@ function renderAgentsTable() {
   if (!agents.length) { tb.innerHTML = '<tr><td colspan="7" style="color:var(--text2);text-align:center">No agents</td></tr>'; return; }
   tb.innerHTML = agents.map(([id,a]) => {
     const st = a.status||'idle';
-    // Status badge: playing=green, idle=amber, dead=red, error=red
     let bc, label;
     if (st === 'playing') { bc = 'ok'; label = 'playing'; }
     else if (st === 'dead') { bc = 'dead'; label = 'dead'; }
@@ -245,6 +245,129 @@ function renderAgentsTable() {
       <td>${fmt(a.moltz||0)}</td><td>${fmt(a.smoltz||0)}</td><td>${(a.cross||0)}</td>
       <td>${a.wins||0}</td><td>${wl}</td></tr>`;
   }).join('');
+}
+
+function renderAccountsPage() {
+  const accounts = S.accounts || [];
+  const tb = $('accounts-tbody');
+  if (!tb) return;
+  if (!accounts.length) {
+    tb.innerHTML = '<tr><td colspan="6" style="color:var(--text2);text-align:center">No account profiles yet</td></tr>';
+    return;
+  }
+  tb.innerHTML = accounts.map(acc => {
+    const profile = esc(acc.profile || 'unknown');
+    const status = acc.status || 'stopped';
+    const badge = status === 'running' ? 'ok' : status === 'stopped' ? 'warn' : 'err';
+    const label = status.replace('_', ' ');
+    const apiKey = acc.api_key ? esc(acc.api_key).slice(0, 20) + '…' : '—';
+    const owner = acc.owner_eoa ? esc(acc.owner_eoa) : '—';
+    const canStart = status !== 'running';
+    const canStop = status === 'running';
+    return `<tr>
+      <td>${profile}</td>
+      <td>${esc(acc.agent_name || '')}</td>
+      <td><span class="badge ${badge}">${label}</span></td>
+      <td>${apiKey}</td>
+      <td>${owner}</td>
+      <td class="action-cell">
+        <button class="button button-secondary" onclick="loadAccount('${profile}')">Load</button>
+        <button class="button" onclick="startAccount('${profile}')" ${!canStart ? 'disabled' : ''}>Start</button>
+        <button class="button button-danger" onclick="stopAccount('${profile}')" ${!canStop ? 'disabled' : ''}>Stop</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function saveAccount(event) {
+  event.preventDefault();
+  const profile = document.getElementById('form-profile').value.trim();
+  const agentName = document.getElementById('form-agent-name').value.trim();
+  const apiKey = document.getElementById('form-api-key').value.trim();
+  const ownerEoa = document.getElementById('form-owner-eoa').value.trim();
+  const agentPk = document.getElementById('form-agent-pk').value.trim();
+  if (!profile || !apiKey) {
+    alert('Profile and API key are required.');
+    return;
+  }
+  fetch('/api/accounts', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      profile,
+      agent_name: agentName,
+      api_key: apiKey,
+      owner_eoa: ownerEoa,
+      agent_private_key: agentPk,
+    }),
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      resetAccountForm();
+      refreshAccounts();
+    } else {
+      alert(data.error || 'Failed to save profile');
+    }
+  }).catch(err => {
+    console.error(err);
+    alert('Failed to save profile');
+  });
+}
+
+function resetAccountForm() {
+  document.getElementById('form-profile').value = '';
+  document.getElementById('form-agent-name').value = '';
+  document.getElementById('form-api-key').value = '';
+  document.getElementById('form-owner-eoa').value = '';
+  document.getElementById('form-agent-pk').value = '';
+}
+
+function loadAccount(profile) {
+  const account = (S.accounts || []).find(a => a.profile === profile);
+  if (!account) return;
+  document.getElementById('form-profile').value = account.profile || '';
+  document.getElementById('form-agent-name').value = account.agent_name || '';
+  document.getElementById('form-api-key').value = account.api_key || '';
+  document.getElementById('form-owner-eoa').value = account.owner_eoa || '';
+  document.getElementById('form-agent-pk').value = account.agent_private_key || '';
+}
+
+function refreshAccounts() {
+  fetch('/api/accounts').then(r => r.json()).then(data => {
+    if (data.accounts) {
+      S.accounts = data.accounts;
+      renderAccountsPage();
+    }
+  }).catch(() => {});
+}
+
+function startAccount(profile) {
+  fetch(`/api/accounts/${encodeURIComponent(profile)}/start`, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        refreshAccounts();
+      } else {
+        alert(data.error || 'Failed to start bot');
+      }
+    }).catch(err => {
+      console.error(err);
+      alert('Failed to start bot');
+    });
+}
+
+function stopAccount(profile) {
+  fetch(`/api/accounts/${encodeURIComponent(profile)}/stop`, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        refreshAccounts();
+      } else {
+        alert(data.error || 'Failed to stop bot');
+      }
+    }).catch(err => {
+      console.error(err);
+      alert('Failed to stop bot');
+    });
 }
 
 // ─── Data Table ───

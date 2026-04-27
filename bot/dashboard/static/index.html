@@ -77,21 +77,51 @@
       </div>
     </div>
 
-    <!-- Accounts — Coming Soon -->
     <div class="page" id="page-accounts">
-      <div class="maintenance-wrap">
-        <div class="maint-icon">
-          <svg viewBox="0 0 80 80" fill="none" stroke="var(--cyan)" stroke-width="1.5">
-            <circle cx="40" cy="40" r="36" stroke-dasharray="6 4" class="spin-slow"/>
-            <circle cx="40" cy="40" r="24" stroke-dasharray="4 6" class="spin-reverse"/>
-            <path d="M40 20v6M40 54v6M20 40h6M54 40h6" stroke-width="2" stroke-linecap="round"/>
-            <circle cx="40" cy="40" r="6" fill="var(--cyan)" opacity=".3"/>
-          </svg>
+      <div class="card fade-in" style="margin-bottom:20px">
+        <h3>Account Control Center</h3>
+        <p>Manage bot profiles and control running agents from one place. Add or update accounts, then start and stop bots instantly.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          <button class="button button-primary" onclick="refreshAccounts()">Refresh</button>
+          <button class="button" onclick="resetAccountForm()">Clear Form</button>
         </div>
-        <h2 class="maint-title">Account Manager</h2>
-        <div class="maint-badge">UNDER MAINTENANCE</div>
-        <p class="maint-desc">Multi-account management with wallet linking, API key rotation, and bulk operations is currently being engineered.</p>
-        <div class="maint-eta"><span class="maint-dot"></span> ETA: Next Update</div>
+      </div>
+
+      <div class="card fade-in" style="margin-bottom:20px">
+        <h4>Add / Update Account Profile</h4>
+        <form id="account-form" onsubmit="saveAccount(event)">
+          <div class="form-row">
+            <label>Profile Name</label>
+            <input type="text" id="form-profile" placeholder="default" required />
+          </div>
+          <div class="form-row">
+            <label>Agent Name</label>
+            <input type="text" id="form-agent-name" placeholder="peaxel4" />
+          </div>
+          <div class="form-row">
+            <label>API Key</label>
+            <input type="text" id="form-api-key" placeholder="sk_live_..." required />
+          </div>
+          <div class="form-row">
+            <label>Owner EOA</label>
+            <input type="text" id="form-owner-eoa" placeholder="0x..." />
+          </div>
+          <div class="form-row">
+            <label>Agent Private Key</label>
+            <input type="text" id="form-agent-pk" placeholder="Optional" />
+          </div>
+          <div class="form-row" style="justify-content:flex-end">
+            <button class="button button-primary" type="submit">Save Profile</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card fade-in">
+        <h4>Managed Accounts</h4>
+        <table class="tbl">
+          <thead><tr><th>Profile</th><th>Agent Name</th><th>Status</th><th>API Key</th><th>Owner EOA</th><th>Actions</th></tr></thead>
+          <tbody id="accounts-tbody"><tr><td colspan="6" style="color:var(--text2);text-align:center">No account profiles yet</td></tr></tbody>
+        </table>
       </div>
     </div>
 

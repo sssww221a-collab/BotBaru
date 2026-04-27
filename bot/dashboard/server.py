@@ -8,14 +8,21 @@ import asyncio
 from aiohttp import web
 from bot.dashboard.state import dashboard_state
 from bot.utils.logger import get_logger
+from bot.dashboard.bot_manager import BotManager
 
 log = get_logger(__name__)
 
 DASHBOARD_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(DASHBOARD_DIR, "static")
 
-# Connected WebSocket clients for real-time push
+# Connected WebSocket clients for real-time push updates.
 _ws_clients: set = set()
+_bot_manager: BotManager | None = None
+
+
+def set_bot_manager(manager: BotManager):
+    global _bot_manager
+    _bot_manager = manager
 
 
 async def index_handler(request):
@@ -114,12 +121,63 @@ async def stop_push_loop(app):
             pass
 
 
+async def api_accounts(request):
+    """Return workspace account profiles and runtime status."""
+    accounts = dashboard_state.accounts
+    if _bot_manager is not None:
+        accounts = _bot_manager.list_profiles()
+    return web.json_response({"accounts": accounts})
+
+
 async def api_accounts_post(request):
-    """Save account from dashboard form."""
+    """Save or update account profile from dashboard form."""
     try:
         data = await request.json()
-        dashboard_state.set_account(data)
+        profile = data.get("profile") or data.get("agent_name")
+        if not profile:
+            raise ValueError("Profile name is required")
+        if _bot_manager is not None:
+            _bot_manager.add_or_update_profile(profile, data)
+        else:
+            dashboard_state.set_account({**data, "profile": profile})
         return web.json_response({"ok": True})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
+async def api_account_start(request):
+    profile = request.match_info.get("profile", "")
+    try:
+        if _bot_manager is None:
+            raise RuntimeError("Bot manager not configured")
+        await _bot_manager.start_bot(profile)
+        return web.json_response({"ok": True, "profile": profile})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
+async def api_account_stop(request):
+    profile = request.match_info.get("profile", "")
+    try:
+        if _bot_manager is None:
+            raise RuntimeError("Bot manager not configured")
+        await _bot_manager.stop_bot(profile)
+        return web.json_response({"ok": True, "profile": profile})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
+async def api_account_delete(request):
+    profile = request.match_info.get("profile", "")
+    try:
+        if _bot_manager is None:
+            raise RuntimeError("Bot manager not configured")
+        status = _bot_manager.get_status(profile)
+        if status == "running":
+            raise RuntimeError("Cannot delete running profile; stop it first")
+        accounts = dashboard_state.accounts
+        dashboard_state.accounts = [acc for acc in accounts if acc.get("profile") != profile]
+        return web.json_response({"ok": True, "profile": profile})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=400)
 
@@ -145,6 +203,9 @@ def create_app() -> web.Application:
     app.router.add_get("/api/state", api_state)
     app.router.add_get("/api/accounts", api_accounts)
     app.router.add_post("/api/accounts", api_accounts_post)
+    app.router.add_post("/api/accounts/{profile}/start", api_account_start)
+    app.router.add_post("/api/accounts/{profile}/stop", api_account_stop)
+    app.router.add_delete("/api/accounts/{profile}", api_account_delete)
     app.router.add_get("/api/export", api_export)
     app.router.add_post("/api/import", api_import)
     app.router.add_get("/ws", ws_handler)

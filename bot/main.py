@@ -7,7 +7,8 @@ import asyncio
 import os
 import sys
 from bot.heartbeat import Heartbeat
-from bot.dashboard.server import start_dashboard
+from bot.dashboard.server import start_dashboard, set_bot_manager
+from bot.dashboard.bot_manager import BotManager
 from bot.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -77,11 +78,13 @@ def main():
     log.info("Press Ctrl+C to stop")
 
     profiles = _load_agent_profiles()
-    heartbeats = [Heartbeat(creds=profile, profile_name=profile["profile"]) for profile in profiles]
+    manager = BotManager()
+    set_bot_manager(manager)
 
     async def run_all():
         await start_dashboard(port=DASHBOARD_PORT)
-        await asyncio.gather(*(hb.run() for hb in heartbeats))
+        await manager.start_profiles(profiles)
+        await asyncio.Event().wait()
 
     try:
         if sys.platform == "win32":
@@ -89,6 +92,10 @@ def main():
         asyncio.run(run_all())
     except KeyboardInterrupt:
         log.info("Shutdown complete.")
+        try:
+            asyncio.run(manager.stop_all())
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

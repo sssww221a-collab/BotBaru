@@ -75,13 +75,15 @@ class DashboardState:
             self.agent_logs[agent_id].append(entry)
 
     def set_account(self, account_data: dict):
-        """Add or update account."""
-        api_key = account_data.get("api_key", "")
+        """Add or update account by profile or API key."""
+        profile = account_data.get("profile") or account_data.get("agent_name") or account_data.get("api_key")
+        if not profile:
+            return
         for i, acc in enumerate(self.accounts):
-            if acc.get("api_key") == api_key:
-                self.accounts[i] = account_data
+            if acc.get("profile") == profile or (acc.get("api_key") and acc.get("api_key") == account_data.get("api_key")):
+                self.accounts[i] = {**acc, **account_data, "profile": profile}
                 return
-        self.accounts.append(account_data)
+        self.accounts.append({**account_data, "profile": profile})
 
     # ── Dashboard reads ────────────────────────────────────────
 
