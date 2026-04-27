@@ -39,6 +39,8 @@ class Heartbeat:
         self.agent_private_key = self.creds.get("agent_private_key", "")
         self.owner_eoa = self.creds.get("owner_eoa", "")
         self.agent_wallet_address = self.creds.get("agent_wallet_address", "")
+        self.room_mode = self.creds.get("room_mode") or ROOM_MODE
+        self.creds["room_mode"] = self.room_mode
         self._agent_key = profile_name or self.creds.get("agent_name", "agent-1") or "agent-1"
         self._agent_name = self.creds.get("agent_name", profile_name or "Agent") or "Agent"
         self.memory = AgentMemory(
@@ -202,7 +204,7 @@ class Heartbeat:
 
     async def _handle_ready(self, me: dict, state: str):
         """Join a game based on room selection."""
-        room_type = select_room(me)
+        room_type = select_room(me, self.room_mode)
 
         try:
             if room_type == "paid":

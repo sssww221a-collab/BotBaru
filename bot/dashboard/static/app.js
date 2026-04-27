@@ -252,7 +252,7 @@ function renderAccountsPage() {
   const tb = $('accounts-tbody');
   if (!tb) return;
   if (!accounts.length) {
-    tb.innerHTML = '<tr><td colspan="6" style="color:var(--text2);text-align:center">No account profiles yet</td></tr>';
+    tb.innerHTML = '<tr><td colspan="7" style="color:var(--text2);text-align:center">No account profiles yet</td></tr>';
     return;
   }
   tb.innerHTML = accounts.map(acc => {
@@ -262,12 +262,14 @@ function renderAccountsPage() {
     const label = status.replace('_', ' ');
     const apiKey = acc.api_key ? esc(acc.api_key).slice(0, 20) + '…' : '—';
     const owner = acc.owner_eoa ? esc(acc.owner_eoa) : '—';
+    const roomMode = acc.room_mode ? esc(acc.room_mode) : 'auto';
     const canStart = status !== 'running';
     const canStop = status === 'running';
     return `<tr>
       <td>${profile}</td>
       <td>${esc(acc.agent_name || '')}</td>
       <td><span class="badge ${badge}">${label}</span></td>
+      <td>${roomMode}</td>
       <td>${apiKey}</td>
       <td>${owner}</td>
       <td class="action-cell">
@@ -286,6 +288,7 @@ function saveAccount(event) {
   const apiKey = document.getElementById('form-api-key').value.trim();
   const ownerEoa = document.getElementById('form-owner-eoa').value.trim();
   const agentPk = document.getElementById('form-agent-pk').value.trim();
+  const roomMode = document.getElementById('form-room-mode').value;
   if (!profile || !apiKey) {
     alert('Profile and API key are required.');
     return;
@@ -299,6 +302,7 @@ function saveAccount(event) {
       api_key: apiKey,
       owner_eoa: ownerEoa,
       agent_private_key: agentPk,
+      room_mode: roomMode,
     }),
   }).then(r => r.json()).then(data => {
     if (data.ok) {
@@ -319,6 +323,7 @@ function resetAccountForm() {
   document.getElementById('form-api-key').value = '';
   document.getElementById('form-owner-eoa').value = '';
   document.getElementById('form-agent-pk').value = '';
+  document.getElementById('form-room-mode').value = 'auto';
 }
 
 function loadAccount(profile) {
@@ -329,6 +334,7 @@ function loadAccount(profile) {
   document.getElementById('form-api-key').value = account.api_key || '';
   document.getElementById('form-owner-eoa').value = account.owner_eoa || '';
   document.getElementById('form-agent-pk').value = account.agent_private_key || '';
+  document.getElementById('form-room-mode').value = account.room_mode || 'auto';
 }
 
 function refreshAccounts() {
@@ -410,20 +416,6 @@ function switchLogTab(tab, elem) {
   document.querySelectorAll('.log-tab').forEach(e => e.classList.remove('active'));
   if (elem) elem.classList.add('active');
   renderLogs();
-}
-
-// ─── Account Form ───
-function saveAccount() {
-  const acc = {
-    api_key: $('f-apikey').value,
-    agent_name: $('f-name').value,
-    owner_eoa: $('f-owner').value,
-    owner_pk: $('f-pk').value,
-    room_mode: $('f-room').value
-  };
-  if (!acc.api_key) { alert('API Key required'); return; }
-  fetch('/api/accounts', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(acc) })
-    .then(r => r.json()).then(() => { alert('Saved!'); showPage('data'); }).catch(e => alert('Error: '+e));
 }
 
 function exportData() {

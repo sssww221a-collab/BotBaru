@@ -39,11 +39,6 @@ async def api_state(request):
     return web.json_response(dashboard_state.get_snapshot())
 
 
-async def api_accounts(request):
-    """Return accounts list."""
-    return web.json_response({"accounts": dashboard_state.accounts})
-
-
 async def api_export(request):
     """Export all data as JSON download."""
     data = dashboard_state.get_snapshot()

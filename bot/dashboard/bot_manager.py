@@ -36,10 +36,20 @@ class BotManager:
         profile = self.normalize_profile(profile)
         if not profile:
             raise ValueError("Profile name is required")
-        self._profiles[profile] = {**account_data, "profile": profile}
-        self._update_dashboard_account(profile, {**account_data, "profile": profile})
+        room_mode = (account_data.get("room_mode") or "auto").lower()
+        if room_mode not in {"free", "paid", "auto"}:
+            room_mode = "auto"
+
+        profile_data = {**account_data, "profile": profile, "room_mode": room_mode}
+        self._profiles[profile] = profile_data
+        self._update_dashboard_account(profile, profile_data)
         status = "running" if profile in self._heartbeats else "stopped"
         self._update_dashboard_account(profile, {"status": status})
+
+        if profile in self._heartbeats:
+            heartbeat = self._heartbeats[profile]["heartbeat"]
+            heartbeat.room_mode = room_mode
+            heartbeat.creds["room_mode"] = room_mode
         log.info("Account profile saved: %s", profile)
 
     def get_profile(self, profile: str) -> dict[str, Any] | None:
@@ -112,6 +122,8 @@ class BotManager:
             profile = self.normalize_profile(profile_data.get("profile") or profile_data.get("agent_name", ""))
             if not profile:
                 continue
+            if "room_mode" not in profile_data:
+                profile_data["room_mode"] = "auto"
             self.add_or_update_profile(profile, profile_data)
             try:
                 await self.start_bot(profile)

@@ -8,11 +8,16 @@ from bot.utils.logger import get_logger
 log = get_logger(__name__)
 
 
-def select_room(me_data: dict) -> str:
+def select_room(me_data: dict, room_mode: str | None = None) -> str:
     """
     Determine which room type to join.
     Returns 'free' or 'paid'.
     """
+    room_mode = (room_mode or ROOM_MODE or "auto").lower()
+    if room_mode not in {"free", "paid", "auto"}:
+        log.warning("Invalid room_mode=%s; falling back to auto", room_mode)
+        room_mode = "auto"
+
     balance = me_data.get("balance", 0)
     readiness = me_data.get("readiness", {})
     whitelist_ok = readiness.get("whitelistApproved", False)
@@ -32,11 +37,11 @@ def select_room(me_data: dict) -> str:
         and not has_active_paid
     )
 
-    if ROOM_MODE == "free":
+    if room_mode == "free":
         log.info("Room mode: FREE (forced)")
         return "free"
 
-    if ROOM_MODE == "paid":
+    if room_mode == "paid":
         if paid_ready:
             log.info("Room mode: PAID (forced, ready)")
             return "paid"

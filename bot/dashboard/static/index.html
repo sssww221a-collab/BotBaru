@@ -87,6 +87,7 @@
           <li><strong>API Key</strong>: kunci API Molty Royale untuk agent tersebut.</li>
           <li><strong>Owner EOA</strong>: alamat pemilik untuk whitelist/identity (opsional jika sudah tersetting).</li>
           <li><strong>Agent Private Key</strong>: diperlukan untuk paid-join / signing bila ada.</li>
+          <li><strong>Room Mode</strong>: pilih <em>Auto</em>, <em>Free</em>, atau <em>Paid</em> untuk kontrol isi room.</li>
         </ul>
         <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:14px">
           <button class="button button-primary" onclick="refreshAccounts()">Refresh</button>
@@ -122,6 +123,14 @@
               <label>Agent Private Key</label>
               <input type="text" id="form-agent-pk" placeholder="Optional" />
             </div>
+            <div class="form-group">
+              <label>Room Mode</label>
+              <select id="form-room-mode">
+                <option value="auto">Auto (free or paid)</option>
+                <option value="free">Free only</option>
+                <option value="paid">Paid only</option>
+              </select>
+            </div>
             <div class="form-group" style="align-self:flex-end;display:flex;justify-content:flex-end;">
               <button class="button button-primary" type="submit" style="width:100%;">Save Profile</button>
             </div>
@@ -132,8 +141,8 @@
       <div class="card fade-in">
         <h4>Managed Accounts</h4>
         <table class="tbl">
-          <thead><tr><th>Profile</th><th>Agent Name</th><th>Status</th><th>API Key</th><th>Owner EOA</th><th>Actions</th></tr></thead>
-          <tbody id="accounts-tbody"><tr><td colspan="6" style="color:var(--text2);text-align:center">No account profiles yet</td></tr></tbody>
+          <thead><tr><th>Profile</th><th>Agent Name</th><th>Status</th><th>Room Mode</th><th>API Key</th><th>Owner EOA</th><th>Actions</th></tr></thead>
+          <tbody id="accounts-tbody"><tr><td colspan="7" style="color:var(--text2);text-align:center">No account profiles yet</td></tr></tbody>
         </table>
       </div>
     </div>
