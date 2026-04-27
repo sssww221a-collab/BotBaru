@@ -233,10 +233,17 @@ class WebSocketEngine:
         elif msg_type == "pong":
             pass
 
-        # ── error ─────────────────────────────────────────────────────
-        elif msg_type == "error":
-            err_msg = msg.get("message", msg.get("data", {}).get("message", str(msg)))
-            log.error("Server error: %s", err_msg)
+        # ── captcha ───────────────────────────────────────────────────
+        elif msg_type == "captcha" or msg_type == "challenge":
+            question = msg.get("question", msg.get("data", {}).get("question", ""))
+            if question:
+                from bot.strategy.brain import solve_captcha
+                answer = solve_captcha(question)
+                if answer:
+                    await self._send_action({"action": "captcha_answer", "data": {"answer": answer}})
+                    log.info("CAPTCHA answered: %s", answer)
+                else:
+                    log.warning("CAPTCHA failed to solve: %s", question)
 
         # ── unknown ───────────────────────────────────────────────────
         else:
@@ -260,6 +267,8 @@ class WebSocketEngine:
             log.info("☠️ Agent DEAD — Alive remaining: %s. Waiting for game_ended...", alive_count)
             # Update dashboard with dead state (don't just return silently!)
             dk = self.dashboard_key
+            # Preserve existing smoltz balance
+            existing_smoltz = dashboard_state.agents.get(dk, {}).get("smoltz", 0)
             dashboard_state.update_agent(dk, {
                 "name": self.dashboard_name,
                 "status": "dead",
@@ -271,6 +280,7 @@ class WebSocketEngine:
                 "last_action": "☠️ DEAD — waiting for game to end",
                 "enemies": [],
                 "region_items": [],
+                "smoltz": existing_smoltz,
             })
             dashboard_state.add_log(
                 f"☠️ Agent DEAD — Alive remaining: {alive_count}",
@@ -364,6 +374,8 @@ class WebSocketEngine:
                     or "")
 
         dk = self.dashboard_key
+        # Preserve existing smoltz balance
+        existing_smoltz = dashboard_state.agents.get(dk, {}).get("smoltz", 0)
         dashboard_state.update_agent(dk, {
             "name": self.dashboard_name,
             "hp": hp, "ep": ep,
@@ -377,6 +389,7 @@ class WebSocketEngine:
             "kills": self_data.get("kills", 0),
             "region": region_name,
             "alive_count": alive_count,
+            "smoltz": existing_smoltz,
             "inventory": [{"typeId": i.get("typeId","?"), "name": _item_label(i), "cat": _item_cat(i)}
                           for i in inv if isinstance(i, dict)],
             "enemies": [{"name": e.get("name","?"), "hp": e.get("hp","?"), "id": e.get("id","")}

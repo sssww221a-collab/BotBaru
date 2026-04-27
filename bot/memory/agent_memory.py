@@ -81,6 +81,8 @@ class AgentMemory:
             "currentStrategy": "adaptive",
             "knownAgents": [],
             "notes": "",
+            "path_history": [],  # Jejak kaki: list 20 region IDs terakhir
+            "junk_blacklist": set(),  # Memori sampah: item IDs yang sudah dibuang
         }
 
     def update_temp_note(self, note: str):
@@ -89,8 +91,33 @@ class AgentMemory:
         existing = self.data["temp"].get("notes", "")
         self.data["temp"]["notes"] = f"{existing}\n{note}".strip()
 
-    def clear_temp(self):
-        self.data["temp"] = {}
+    def add_path_history(self, region_id: str, max_history: int = 20):
+        """Tambah jejak ruangan, jaga maksimal 20."""
+        if "temp" not in self.data:
+            return
+        history = self.data["temp"].get("path_history", [])
+        if region_id not in history:
+            history.append(region_id)
+            if len(history) > max_history:
+                history.pop(0)
+        self.data["temp"]["path_history"] = history
+
+    def get_path_history(self) -> list:
+        """Ambil jejak ruangan."""
+        return self.data.get("temp", {}).get("path_history", [])
+
+    def add_junk_blacklist(self, item_id: str):
+        """Tambah item ID ke blacklist sampah."""
+        if "temp" not in self.data:
+            return
+        blacklist = self.data["temp"].get("junk_blacklist", set())
+        blacklist.add(item_id)
+        self.data["temp"]["junk_blacklist"] = list(blacklist)  # JSON serializable
+
+    def is_junk_blacklisted(self, item_id: str) -> bool:
+        """Cek apakah item ID di blacklist."""
+        blacklist = self.data.get("temp", {}).get("junk_blacklist", [])
+        return item_id in blacklist
 
     # ── History update (after game end) ───────────────────────────────
 

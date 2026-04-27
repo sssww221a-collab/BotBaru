@@ -23,6 +23,7 @@ Uses ALL view fields from api-summary.md:
 - recentMessages: regional/private/broadcast messages
 - aliveCount: remaining alive agents
 """
+import requests
 from bot.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -68,6 +69,22 @@ WEATHER_COMBAT_PENALTY = {
     "fog": 0.10,    # -10%
     "storm": 0.15,  # -15%
 }
+
+
+def solve_captcha(question: str) -> str:
+    """AI Captcha Solver menggunakan Llama-3."""
+    try:
+        # Placeholder: ganti dengan API call ke Llama-3
+        # Contoh: response = requests.post("https://api.llama3.com/solve", json={"question": question})
+        # return response.json().get("answer", "")
+        log.info("CAPTCHA: Solving '%s'", question)
+        # Simulasi jawaban sederhana
+        if "color" in question.lower():
+            return "blue"  # Placeholder
+        return "answer"  # Placeholder
+    except Exception as e:
+        log.error("CAPTCHA solve failed: %s", e)
+        return ""
 
 
 def calc_damage(atk: int, weapon_bonus: int, target_def: int,
@@ -199,6 +216,10 @@ def decide_action(view: dict, can_act: bool, memory_temp: dict = None) -> dict |
     if not is_alive:
         return None  # Dead — wait for game_ended
 
+    # Sistem Jejak Kaki: Tambah region_id ke history
+    if memory_temp and hasattr(memory_temp, 'add_path_history'):
+        memory_temp.add_path_history(region_id)
+
     # ── Build FULL danger map (DZ + pending DZ) ───────────────────
     # Used by ALL movement decisions to NEVER move into danger.
     # v1.5.2: pendingDeathzones entries are {id, name} objects
@@ -258,7 +279,7 @@ def decide_action(view: dict, can_act: bool, memory_temp: dict = None) -> dict |
     # ── FREE ACTIONS (no cooldown, do before main action) ─────────
 
     # Auto-pickup Moltz (currency) and valuable items
-    pickup_action = _check_pickup(visible_items, inventory, region_id)
+    pickup_action = _check_pickup(visible_items, inventory, region_id, memory_temp)
     if pickup_action:
         return pickup_action
 
@@ -328,7 +349,8 @@ def decide_action(view: dict, can_act: bool, memory_temp: dict = None) -> dict |
     hp_threshold = 40 if alive_count > 20 else 25
     enemies = [a for a in visible_agents
                if not a.get("isGuardian", False) and a.get("isAlive", True)
-               and a.get("id") != self_data.get("id")]
+               and a.get("id") != self_data.get("id")
+               and not _is_ally(a)]  # Protokol Aliansi: skip peaxel
     if enemies and ep >= 2 and hp >= hp_threshold:
         target = _select_weakest(enemies)
         w_range = get_weapon_range(equipped)
@@ -374,7 +396,7 @@ def decide_action(view: dict, can_act: bool, memory_temp: dict = None) -> dict |
     # Use connectedRegions — NEVER move into DZ or pending DZ!
     if ep >= move_ep_cost and connections:
         move_target = _choose_move_target(connections, danger_ids,
-                                           region, visible_items, alive_count)
+                                           region, visible_items, alive_count, memory_temp)
         if move_target:
             return {"action": "move", "data": {"regionId": move_target},
                     "reason": "EXPLORE: Moving to better position"}
@@ -389,7 +411,10 @@ def decide_action(view: dict, can_act: bool, memory_temp: dict = None) -> dict |
 
 # ── Helper functions ──────────────────────────────────────────────────
 
-def _get_move_ep_cost(terrain: str, weather: str) -> int:
+def _is_ally(agent: dict) -> bool:
+    """Protokol Aliansi: Cek apakah agent adalah sekutu (nama mengandung 'peaxel')."""
+    name = agent.get("name", "").lower()
+    return "peaxel" in name
     """Calculate move EP cost per game-systems.md.
     Base: 2. Storm: +1. Water terrain: 3.
     """
@@ -427,7 +452,7 @@ _known_agents: dict = {}
 #     return ""
 
 
-def _check_pickup(items: list, inventory: list, region_id: str) -> dict | None:
+def _check_pickup(items: list, inventory: list, region_id: str, memory_temp=None) -> dict | None:
     """Smart pickup: weapons > healing stockpile > utility > Moltz (always).
     Max inventory = 10 per limits.md.
     Strategy:
@@ -448,6 +473,10 @@ def _check_pickup(items: list, inventory: list, region_id: str) -> dict | None:
         local_items = [i for i in items if isinstance(i, dict) and i.get("id")]
     if not local_items:
         return None
+
+    # Memori Sampah: Filter out blacklisted items
+    if memory_temp and hasattr(memory_temp, 'is_junk_blacklisted'):
+        local_items = [i for i in local_items if not memory_temp.is_junk_blacklisted(i.get("id", ""))]
 
     # Count current healing items for stockpile management
     heal_count = sum(1 for i in inventory if isinstance(i, dict)
@@ -740,11 +769,17 @@ def learn_from_map(view: dict):
 
 def _choose_move_target(connections, danger_ids: set,
                          current_region: dict, visible_items: list,
-                         alive_count: int) -> str | None:
+                         alive_count: int, memory_temp=None) -> str | None:
     """Choose best region to move to.
     CRITICAL: NEVER move into a death zone or pending death zone!
+    Sistem Jejak Kaki: Hindari region yang sudah dikunjungi (20 terakhir).
     """
     candidates = []
+
+    # Sistem Jejak Kaki: Ambil history path
+    path_history = []
+    if memory_temp and hasattr(memory_temp, 'get_path_history'):
+        path_history = memory_temp.get_path_history()
 
     # Build set of regions with visible items for attraction
     item_regions = set()
@@ -757,6 +792,9 @@ def _choose_move_target(connections, danger_ids: set,
             # HARD BLOCK: never move into danger zone
             if conn in danger_ids:
                 continue
+            # Sistem Jejak Kaki: Skip jika sudah dikunjungi
+            if conn in path_history:
+                continue
             score = 1
             if conn in item_regions:
                 score += 5
@@ -766,6 +804,9 @@ def _choose_move_target(connections, danger_ids: set,
             rid = conn.get("id", "")
             # HARD BLOCK: never move into DZ or pending DZ
             if not rid or conn.get("isDeathZone") or rid in danger_ids:
+                continue
+            # Sistem Jejak Kaki: Skip jika sudah dikunjungi
+            if rid in path_history:
                 continue
 
             score = 0
