@@ -82,7 +82,7 @@ class AgentMemory:
             "knownAgents": [],
             "notes": "",
             "path_history": [],  # Jejak kaki: list 20 region IDs terakhir
-            "junk_blacklist": set(),  # Memori sampah: item IDs yang sudah dibuang
+            "junk_blacklist": [],  # Memori sampah: item IDs yang sudah dibuang
         }
 
     def update_temp_note(self, note: str):
@@ -110,7 +110,8 @@ class AgentMemory:
         """Tambah item ID ke blacklist sampah."""
         if "temp" not in self.data:
             return
-        blacklist = self.data["temp"].get("junk_blacklist", set())
+        blacklist = self.data["temp"].get("junk_blacklist", [])
+        blacklist = set(blacklist)
         blacklist.add(item_id)
         self.data["temp"]["junk_blacklist"] = list(blacklist)  # JSON serializable
 
