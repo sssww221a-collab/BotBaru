@@ -1,6 +1,7 @@
 import asyncio
 from typing import Any
 from bot.heartbeat import Heartbeat
+from bot.dashboard.env_store import persist_agent_profile
 from bot.dashboard.state import dashboard_state
 from bot.utils.logger import get_logger
 
@@ -45,6 +46,8 @@ class BotManager:
         self._update_dashboard_account(profile, profile_data)
         status = "running" if profile in self._heartbeats else "stopped"
         self._update_dashboard_account(profile, {"status": status})
+
+        persist_agent_profile(profile, profile_data)
 
         if profile in self._heartbeats:
             heartbeat = self._heartbeats[profile]["heartbeat"]

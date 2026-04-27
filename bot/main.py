@@ -49,13 +49,20 @@ def _load_agent_profiles() -> list[dict]:
         if not token.strip():
             continue
         profile = _normalize_profile_name(token)
+        api_key = _get_env(f"{profile}_API_KEY")
+        agent_name = _get_env(f"{profile}_AGENT_NAME") or token.strip()
+        if profile == "DEFAULT":
+            api_key = api_key or _get_env("API_KEY")
+            agent_name = agent_name or _get_env("AGENT_NAME")
+
         profiles.append({
             "profile": profile,
-            "api_key": _get_env(f"{profile}_API_KEY"),
+            "api_key": api_key,
             "agent_private_key": _get_env(f"{profile}_AGENT_PRIVATE_KEY"),
             "agent_wallet_address": _get_env(f"{profile}_AGENT_WALLET_ADDRESS"),
-            "agent_name": _get_env(f"{profile}_AGENT_NAME") or token.strip(),
+            "agent_name": agent_name,
             "owner_eoa": _get_env(f"{profile}_OWNER_EOA"),
+            "room_mode": _get_env(f"{profile}_ROOM_MODE") or ("auto" if profile != "DEFAULT" else _get_env("ROOM_MODE") or "auto"),
         })
 
     if not profiles:
