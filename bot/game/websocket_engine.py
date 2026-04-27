@@ -62,10 +62,11 @@ def _update_dz_knowledge(view: dict):
 class WebSocketEngine:
     """Manages the gameplay WebSocket session."""
 
-    def __init__(self, game_id: str, agent_id: str, api_key: str = ""):
+    def __init__(self, game_id: str, agent_id: str, api_key: str = "", memory=None):
         self.game_id = game_id
         self.agent_id = agent_id
         self.api_key = api_key
+        self.memory_temp = memory
         self.action_sender = ActionSender()
         self.ws = None
         self.game_result = None
@@ -413,7 +414,7 @@ class WebSocketEngine:
 
         # Run strategy brain
         can_act = self.action_sender.can_send_cooldown_action()
-        decision = decide_action(view, can_act)
+        decision = decide_action(view, can_act, self.memory_temp)
 
         if decision is None:
             return  # No action needed now

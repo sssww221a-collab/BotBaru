@@ -255,7 +255,7 @@ class Heartbeat:
         await self.memory.save()
 
         # Run WebSocket engine — pass agent_key + name for dashboard
-        engine = WebSocketEngine(game_id, agent_id, api_key=self.api_key)
+        engine = WebSocketEngine(game_id, agent_id, api_key=self.api_key, memory=self.memory)
         engine.dashboard_key = self._agent_key
         engine.dashboard_name = self._agent_name
         game_result = await engine.run()
