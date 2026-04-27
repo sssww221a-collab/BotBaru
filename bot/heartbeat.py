@@ -137,6 +137,7 @@ class Heartbeat:
             "name": self._agent_name,
             "status": "playing" if state == IN_GAME else "idle",
             "smoltz": balance,
+            "moltz": me.get("moltz", dashboard_state.agents.get(self._agent_key, {}).get("moltz", 0)),
             "whitelisted": state != NO_IDENTITY,
         })
 

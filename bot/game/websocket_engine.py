@@ -267,8 +267,9 @@ class WebSocketEngine:
             log.info("☠️ Agent DEAD — Alive remaining: %s. Waiting for game_ended...", alive_count)
             # Update dashboard with dead state (don't just return silently!)
             dk = self.dashboard_key
-            # Preserve existing smoltz balance
+            # Preserve existing currency balances
             existing_smoltz = dashboard_state.agents.get(dk, {}).get("smoltz", 0)
+            existing_moltz = dashboard_state.agents.get(dk, {}).get("moltz", 0)
             dashboard_state.update_agent(dk, {
                 "name": self.dashboard_name,
                 "status": "dead",
@@ -281,6 +282,7 @@ class WebSocketEngine:
                 "enemies": [],
                 "region_items": [],
                 "smoltz": existing_smoltz,
+                "moltz": existing_moltz,
             })
             dashboard_state.add_log(
                 f"☠️ Agent DEAD — Alive remaining: {alive_count}",
@@ -374,8 +376,9 @@ class WebSocketEngine:
                     or "")
 
         dk = self.dashboard_key
-        # Preserve existing smoltz balance
+        # Preserve existing currency balances
         existing_smoltz = dashboard_state.agents.get(dk, {}).get("smoltz", 0)
+        existing_moltz = dashboard_state.agents.get(dk, {}).get("moltz", 0)
         dashboard_state.update_agent(dk, {
             "name": self.dashboard_name,
             "hp": hp, "ep": ep,
@@ -390,6 +393,7 @@ class WebSocketEngine:
             "region": region_name,
             "alive_count": alive_count,
             "smoltz": existing_smoltz,
+            "moltz": self_data.get("moltz", existing_moltz),
             "inventory": [{"typeId": i.get("typeId","?"), "name": _item_label(i), "cat": _item_cat(i)}
                           for i in inv if isinstance(i, dict)],
             "enemies": [{"name": e.get("name","?"), "hp": e.get("hp","?"), "id": e.get("id","")}

@@ -60,6 +60,7 @@ class DashboardState:
         self.agents[agent_id]["last_update"] = time.time()
         self.last_update = time.time()
         self.total_smoltz = sum(a.get("smoltz", 0) for a in self.agents.values())
+        self.total_moltz = sum(a.get("moltz", 0) for a in self.agents.values())
 
     def add_log(self, message: str, level: str = "info", agent_id: str = None):
         """Add log entry."""

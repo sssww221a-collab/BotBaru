@@ -415,9 +415,16 @@ def _is_ally(agent: dict) -> bool:
     """Protokol Aliansi: Cek apakah agent adalah sekutu (nama mengandung 'peaxel')."""
     name = agent.get("name", "").lower()
     return "peaxel" in name
+
+
+def _get_move_ep_cost(terrain: str, weather: str) -> int:
     """Calculate move EP cost per game-systems.md.
-    Base: 2. Storm: +1. Water terrain: 3.
+    Base: 2 EP per move.
+    - Water terrain costs 3 EP.
+    - Storm costs 3 EP.
     """
+    terrain = (terrain or "").lower()
+    weather = (weather or "").lower()
     if terrain == "water":
         return 3
     if weather == "storm":
