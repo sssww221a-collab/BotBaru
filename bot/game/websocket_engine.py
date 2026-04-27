@@ -74,6 +74,7 @@ class WebSocketEngine:
         self._ping_task = None
         self._running = False
         self._map_just_used = False  # Track if Map was used for learning
+        self._vacuum_pickup_queue: list[str] = []
         # Dashboard key/name — set by heartbeat before .run()
         self.dashboard_key = agent_id  # fallback to agent_id
         self.dashboard_name = "Agent"
@@ -181,12 +182,22 @@ class WebSocketEngine:
                 action_name = msg.get("action") or (data.get("action") if isinstance(data, dict) else None)
                 if action_name == "pickup" and isinstance(data, dict):
                     item_id = data.get("itemId") or data.get("item_id")
-                    if item_id:
+                    item_type = (data.get("typeId") or data.get("category") or "").lower()
+                    if item_id and item_type in {"katana", "sniper", "sword", "pistol", "dagger", "bow", "weapon"}:
                         log.info("Pickup succeeded: auto-equip itemId=%s", item_id)
                         try:
                             await self._send({"action": "equip", "data": {"itemId": item_id}})
                         except Exception as exc:
                             log.warning("Auto-equip failed after pickup: %s", exc)
+
+                if action_name == "pickup" and self._vacuum_pickup_queue:
+                    next_item = self._vacuum_pickup_queue.pop(0)
+                    await asyncio.sleep(0.2)
+                    try:
+                        await self._send({"action": "pickup", "data": {"itemId": next_item}})
+                        log.info("VACUUM: pickup next item %s", next_item)
+                    except Exception as exc:
+                        log.warning("VACUUM: failed to send next pickup %s: %s", next_item, exc)
             else:
                 err = msg.get("error", {})
                 err_code = err.get("code", "") if isinstance(err, dict) else str(err)
@@ -436,6 +447,18 @@ class WebSocketEngine:
         # Check if cooldown action is allowed
         if action_type in COOLDOWN_ACTIONS and not can_act:
             log.debug("Cooldown active — skipping %s", action_type)
+            return
+
+        if action_type == "vacuum_pickup":
+            item_ids = action_data.get("itemIds", []) if isinstance(action_data, dict) else []
+            if not item_ids:
+                return
+            self._vacuum_pickup_queue = item_ids[1:]
+            first_item = item_ids[0]
+            await self._send({"action": "pickup", "data": {"itemId": first_item}})
+            log.info("VACUUM: pickup first item %s | %s", first_item, reason)
+            dashboard_state.update_agent(self.dashboard_key, {"last_action": f"vacuum_pickup: {reason[:60]}"})
+            dashboard_state.add_log(f"vacuum_pickup: {reason[:80]}", "info", self.dashboard_key)
             return
 
         # Build and send per actions.md envelope spec

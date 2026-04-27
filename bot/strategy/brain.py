@@ -278,8 +278,8 @@ def decide_action(view: dict, can_act: bool, memory_temp: dict = None) -> dict |
 
     # ── FREE ACTIONS (no cooldown, do before main action) ─────────
 
-    # Auto-pickup Moltz (currency) and valuable items
-    pickup_action = _check_pickup(visible_items, inventory, region_id, memory_temp)
+    # Auto-pickup Moltz and valuable items in vacuum mode — pick all desired items immediately
+    pickup_action = _check_vacuum_pickup(visible_items, inventory, region_id, memory_temp)
     if pickup_action:
         return pickup_action
 
@@ -457,6 +457,52 @@ _known_agents: dict = {}
 # def _solve_curse_question(question) -> str:
 #     """DISABLED: Guardian curse is temporarily disabled in v1.5.2."""
 #     return ""
+
+
+def _check_vacuum_pickup(items: list, inventory: list, region_id: str, memory_temp=None) -> dict | None:
+    """Vacuum pickup: queue all desirable items in the current region.
+    Free pickup/equip actions cost 0 EP and have no cooldown, so we can
+    perform multiple sequential pickups without waiting for next turn.
+    """
+    if len(inventory) >= 10:
+        return None
+
+    local_items = [i for i in items if isinstance(i, dict) and i.get("regionId") == region_id]
+    if not local_items:
+        local_items = [i for i in items if isinstance(i, dict) and i.get("id")]
+    if not local_items:
+        return None
+
+    if memory_temp and hasattr(memory_temp, 'is_junk_blacklisted'):
+        local_items = [i for i in local_items if not memory_temp.is_junk_blacklisted(i.get("id", ""))]
+
+    heal_count = sum(1 for i in inventory if isinstance(i, dict)
+                     and i.get("typeId", "").lower() in RECOVERY_ITEMS
+                     and RECOVERY_ITEMS.get(i.get("typeId", "").lower(), 0) > 0)
+
+    scored = [(i, _pickup_score(i, inventory, heal_count)) for i in local_items]
+    scored = [pair for pair in scored if pair[1] > 0]
+    if not scored:
+        return None
+
+    scored.sort(key=lambda pair: pair[1], reverse=True)
+    item_ids = []
+    inventory_count = len(inventory)
+    for item, score in scored:
+        if inventory_count >= 10:
+            break
+        item_id = item.get("id")
+        if not item_id:
+            continue
+        item_ids.append(item_id)
+        inventory_count += 1
+
+    if not item_ids:
+        return None
+
+    log.info("VACUUM PICKUP: %d items queued for pickup", len(item_ids))
+    return {"action": "vacuum_pickup", "data": {"itemIds": item_ids},
+            "reason": f"VACUUM PICKUP: collecting {len(item_ids)} nearby items"}
 
 
 def _check_pickup(items: list, inventory: list, region_id: str, memory_temp=None) -> dict | None:
