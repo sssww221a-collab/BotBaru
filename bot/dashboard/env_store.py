@@ -3,11 +3,15 @@ from pathlib import Path
 from typing import Any
 from dotenv import load_dotenv, set_key, unset_key
 
-ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+if os.path.exists("/app/data"):
+    ENV_FILE = Path("/app/data") / ".env"
+else:
+    ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
 
 
 def _ensure_env_file() -> Path:
     if not ENV_FILE.exists():
+        ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
         ENV_FILE.write_text("")
     return ENV_FILE
 
