@@ -460,9 +460,46 @@ class WebSocketEngine:
                 payload = self._build_silent_action("pickup", {"itemId": item_id})
                 await self._send(payload)
                 log.info("VACUUM: pickup item %s | %s", item_id, reason)
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.1)
             dashboard_state.update_agent(self.dashboard_key, {"last_action": f"vacuum_pickup: {reason[:60]}"})
             dashboard_state.add_log(f"vacuum_pickup: {reason[:80]}", "info", self.dashboard_key)
+            return
+
+        if action_type == "pickup":
+            # Multi-send safer looting: score visible region items and pickup all positive items.
+            from bot.strategy.brain import _pickup_score
+            heal_count = sum(1 for i in inv if isinstance(i, dict)
+                             and (i.get("typeId") or "").lower() in {"medkit", "bandage", "energy_drink"})
+            scored_items = []
+            for item in region_items:
+                if not isinstance(item, dict):
+                    continue
+                item_id = item.get("id")
+                if not item_id or item_id in self._pickup_blacklist:
+                    continue
+                score = _pickup_score(item, inv, heal_count, equipped)
+                if score > 0:
+                    scored_items.append((score, item_id, item))
+            if scored_items:
+                scored_items.sort(key=lambda x: x[0], reverse=True)
+                for score, item_id, item in scored_items:
+                    payload = self._build_silent_action("pickup", {"itemId": item_id})
+                    await self._send(payload)
+                    log.info("VACUUM PICKUP: item=%s score=%s | %s", item_id, score, reason)
+                    await asyncio.sleep(0.1)
+                dashboard_state.update_agent(self.dashboard_key, {"last_action": f"vacuum_pickup: {reason[:60]}"})
+                dashboard_state.add_log(f"vacuum_pickup: {reason[:80]}", "info", self.dashboard_key)
+                return
+            # fallback to single requested pickup if no scored items available
+            item_id = action_data.get("itemId") if isinstance(action_data, dict) else None
+            if item_id and item_id not in self._pickup_blacklist:
+                payload = self._build_silent_action("pickup", {"itemId": item_id})
+                await self._send(payload)
+                log.info("PICKUP: pickup requested item %s | %s", item_id, reason)
+                dashboard_state.update_agent(self.dashboard_key, {"last_action": f"pickup: {reason[:60]}"})
+                dashboard_state.add_log(f"pickup: {reason[:80]}", "info", self.dashboard_key)
+                return
+            log.debug("PICKUP: no valid pickup items after blacklist filtering")
             return
 
         # Build and send per actions.md envelope spec

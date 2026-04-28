@@ -361,31 +361,57 @@ def decide_action(view: dict, can_act: bool, memory_temp: dict = None) -> dict |
                                   f"(120 sMoltz! dmg={my_dmg} vs {guardian_dmg})"}
 
     # ── Priority 6: Favorable agent combat ────────────────────────
-    # Be more aggressive when fewer agents remain (late game)
-    # Per game-systems.md: avoid combat in storm(-15%) or fog(-10%)
-    hp_threshold = 40 if alive_count > 20 else 25
+    # Aggressive Mafia playstyle: gank with allies, vulture low-HP targets,
+    # execute when we can finish, otherwise fall back to movement.
     enemies = [a for a in visible_agents
                if not a.get("isGuardian", False) and a.get("isAlive", True)
                and a.get("id") != self_data.get("id")
                and not _is_ally(a)]  # Protokol Aliansi: skip peaxel
-    if enemies and ep >= 2 and hp >= hp_threshold:
-        target = _select_weakest(enemies)
+    if enemies and ep >= 2:
         w_range = get_weapon_range(equipped)
-        if _is_in_range(target, region_id, w_range, connections):
-            my_dmg = calc_damage(atk, get_weapon_bonus(equipped),
-                                target.get("def", 5), region_weather)
-            enemy_dmg = calc_damage(target.get("atk", 10),
-                                     _estimate_enemy_weapon_bonus(target),
-                                     defense, region_weather)
-            # Fight only if we deal more damage or target is low HP
-            if my_dmg > enemy_dmg or target.get("hp", 100) <= my_dmg * 2:
+        allies_here = [a for a in visible_agents
+                       if a.get("isAlive", True)
+                       and _is_ally(a)
+                       and a.get("regionId") == region_id]
+        same_region_enemies = [e for e in enemies if e.get("regionId") == region_id]
+
+        if same_region_enemies:
+            target = _select_weakest(same_region_enemies)
+            if allies_here:
                 return {"action": "attack",
                         "data": {"targetId": target["id"], "targetType": "agent"},
-                        "reason": f"COMBAT: Target HP={target.get('hp', '?')}, "
-                                  f"dmg={my_dmg} vs enemy_dmg={enemy_dmg}"}
+                        "reason": "GANKING MAFIA! Keroyok musuh!"}
+            if target.get("hp", 0) <= 40:
+                return {"action": "attack",
+                        "data": {"targetId": target["id"], "targetType": "agent"},
+                        "reason": "VULTURE MODE! Nyampah kill!"}
+            my_dmg = calc_damage(atk, get_weapon_bonus(equipped),
+                                 target.get("def", 5), region_weather)
+            if hp > 85 or target.get("hp", 0) <= my_dmg:
+                return {"action": "attack",
+                        "data": {"targetId": target["id"], "targetType": "agent"},
+                        "reason": "Eksekusi musuh!"}
+        else:
+            ranged_enemies = [e for e in enemies
+                              if _is_in_range(e, region_id, w_range, connections)]
+            if ranged_enemies:
+                target = _select_weakest(ranged_enemies)
+                if target.get("hp", 0) <= 40:
+                    return {"action": "attack",
+                            "data": {"targetId": target["id"], "targetType": "agent"},
+                            "reason": "VULTURE MODE! Nyampah kill!"}
+                my_dmg = calc_damage(atk, get_weapon_bonus(equipped),
+                                     target.get("def", 5), region_weather)
+                if hp > 85 or target.get("hp", 0) <= my_dmg:
+                    return {"action": "attack",
+                            "data": {"targetId": target["id"], "targetType": "agent"},
+                            "reason": "Eksekusi musuh!"}
 
     # ── Priority 7: Monster farming ───────────────────────────────
-    monsters = [m for m in visible_monsters if m.get("hp", 0) > 0]
+    if not region.get("isDeathZone", False) and region_id not in danger_ids:
+        monsters = [m for m in visible_monsters if m.get("hp", 0) > 60]
+    else:
+        monsters = []
     if monsters and ep >= 2:
         target = _select_weakest(monsters)
         w_range = get_weapon_range(equipped)
@@ -394,7 +420,7 @@ def decide_action(view: dict, can_act: bool, memory_temp: dict = None) -> dict |
             if my_dmg > 0:
                 return {"action": "attack",
                         "data": {"targetId": target["id"], "targetType": "monster"},
-                        "reason": f"MONSTER FARM: {target.get('name', 'monster')} HP={target.get('hp', '?')} dmg={my_dmg}"}
+                        "reason": f"PREMAN PASAR! Bantai monster! HP={target.get('hp', '?')} dmg={my_dmg}"}
             log.warning("MONSTER FARM skipped: my_dmg=%s <= 0 against %s", my_dmg, target.get('name', 'monster'))
 
     # ── Priority 7b: Moderate healing (HP < 70, safe area) ────────
@@ -581,44 +607,40 @@ def _check_pickup(items: list, inventory: list, equipped, region_id: str, memory
 
 
 def _pickup_score(item: dict, inventory: list, heal_count: int, equipped) -> int:
-    """Calculate dynamic pickup score based on current inventory state."""
+    """Calculate pickup score using Vulture Looting logic from bot15.py."""
+    if len(inventory) >= 10:
+        return 0
+
     type_id = (item.get("typeId") or "").lower()
     category = (item.get("category") or "").lower()
-    equipped_type = (equipped.get("typeId") or "").lower() if isinstance(equipped, dict) else (str(equipped or "").lower())
+    equipped_type = (equipped.get("typeId") or "").lower() if isinstance(equipped, dict) else ""
     unarmed = equipped_type in {"", "fist"}
 
-    # 1. SENJATA: if unarmed, any weapon-like item is top priority
-    if unarmed and _is_weapon_like(item):
+    # PRIORITAS MUTLAK: sMoltz / rewards
+    if type_id == "rewards" or category == "currency":
         return 500
 
-    # 2. MOLTZ/sMoltz — ALWAYS pickup
-    if type_id == "rewards" or category == "currency":
-        return 300
+    # PRIORITAS MUTLAK: consumables
+    if type_id in {"medkit", "bandage", "energy_drink"}:
+        return 400
 
-    # 3. ANTI-NUMPUK UTILITY: don't take duplicates
-    singleton_utilities = {"binoculars", "map", "megaphone", "radio"}
-    if type_id in singleton_utilities:
-        has_item = any(isinstance(i, dict) and (i.get("typeId") or "").lower() == type_id
-                       for i in inventory)
-        return 50 if not has_item else 0
-
-    # 4. WEAPON comparison when already holding a weapon
+    # WEAPON LOGIC
     if category == "weapon" or _is_weapon_like(item):
         item_bonus = WEAPONS.get(type_id, {}).get("bonus", 0)
         current_bonus = get_weapon_bonus(equipped)
+        if unarmed:
+            return 300
         if item_bonus > current_bonus:
-            return 100
+            return 300
         return 0
 
-    # 5. PRIORITAS OBAT & EP: always high priority
-    if type_id in RECOVERY_ITEMS:
-        score = max(150, ITEM_PRIORITY.get(type_id, 0))
-        if heal_count < 4:
-            score += 20
-        return score
+    # ANTI-SAMPAH: unique utilities only if not already owned
+    if type_id in {"map", "binoculars", "megaphone"}:
+        has_item = any(isinstance(i, dict) and (i.get("typeId") or "").lower() == type_id
+                       for i in inventory)
+        return 100 if not has_item else 0
 
-    # 6. Fallback default priority
-    return ITEM_PRIORITY.get(type_id, 0)
+    return 0
 
 
 def _check_equip(inventory: list, equipped) -> dict | None:
@@ -857,9 +879,9 @@ def _choose_move_target(connections, danger_ids: set,
     candidates = []
 
     # Sistem Jejak Kaki: Ambil history path
-    path_history = []
+    path_history = set()
     if memory_temp and hasattr(memory_temp, 'get_path_history'):
-        path_history = memory_temp.get_path_history()
+        path_history = set(memory_temp.get_path_history() or [])
 
     # Build set of regions with visible items for attraction
     item_regions = set()
@@ -872,10 +894,9 @@ def _choose_move_target(connections, danger_ids: set,
             # HARD BLOCK: never move into danger zone
             if conn in danger_ids:
                 continue
-            # Sistem Jejak Kaki: Skip jika sudah dikunjungi
-            if conn in path_history:
-                continue
             score = 1
+            if conn in path_history:
+                score -= 50
             if conn in item_regions:
                 score += 5
             candidates.append((conn, score))
@@ -885,11 +906,9 @@ def _choose_move_target(connections, danger_ids: set,
             # HARD BLOCK: never move into DZ or pending DZ
             if not rid or conn.get("isDeathZone") or rid in danger_ids:
                 continue
-            # Sistem Jejak Kaki: Skip jika sudah dikunjungi
-            if rid in path_history:
-                continue
-
             score = 0
+            if rid in path_history:
+                score -= 50
             terrain = conn.get("terrain", "").lower()
 
             # Terrain scoring per game-systems.md
