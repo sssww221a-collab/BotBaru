@@ -276,10 +276,27 @@ def decide_action(view: dict, can_act: bool, memory_temp: dict = None) -> dict |
             return {"action": "move", "data": {"regionId": safe},
                     "reason": f"GUARDIAN FLEE: HP={hp}, guardian in region, too dangerous"}
 
+    # ── Priority 2c: Emergency flee if enemy can’t be hurt or if unarmed ───
+    opponents_here = [a for a in visible_agents
+                      if a.get("isAlive", True)
+                      and a.get("id") != self_data.get("id")
+                      and a.get("regionId") == region_id
+                      and not _is_ally(a)]
+    unarmed = not equipped or (isinstance(equipped, dict)
+                                and equipped.get("typeId", "").lower() == "fist")
+    if opponents_here and (unarmed or any(
+            calc_damage(atk, get_weapon_bonus(equipped), enemy.get("def", 5), region_weather) <= 0
+            for enemy in opponents_here)):
+        safe = _find_safe_region(connections, danger_ids, view)
+        if safe:
+            log.warning("🚨 EMERGENCY FLEE! Enemy present and ineffective weapon/unarmed")
+            return {"action": "move", "data": {"regionId": safe},
+                    "reason": "EMERGENCY FLEE: enemy in same region and unable to fight safely"}
+
     # ── FREE ACTIONS (no cooldown, do before main action) ─────────
 
     # Auto-pickup Moltz and valuable items in vacuum mode — pick all desired items immediately
-    pickup_action = _check_vacuum_pickup(visible_items, inventory, region_id, memory_temp)
+    pickup_action = _check_vacuum_pickup(visible_items, inventory, region_id, equipped, memory_temp)
     if pickup_action:
         return pickup_action
 
@@ -373,9 +390,12 @@ def decide_action(view: dict, can_act: bool, memory_temp: dict = None) -> dict |
         target = _select_weakest(monsters)
         w_range = get_weapon_range(equipped)
         if _is_in_range(target, region_id, w_range, connections):
-            return {"action": "attack",
-                    "data": {"targetId": target["id"], "targetType": "monster"},
-                    "reason": f"MONSTER FARM: {target.get('name', 'monster')} HP={target.get('hp', '?')}"}
+            my_dmg = calc_damage(atk, get_weapon_bonus(equipped), target.get("def", 5), region_weather)
+            if my_dmg > 0:
+                return {"action": "attack",
+                        "data": {"targetId": target["id"], "targetType": "monster"},
+                        "reason": f"MONSTER FARM: {target.get('name', 'monster')} HP={target.get('hp', '?')} dmg={my_dmg}"}
+            log.warning("MONSTER FARM skipped: my_dmg=%s <= 0 against %s", my_dmg, target.get('name', 'monster'))
 
     # ── Priority 7b: Moderate healing (HP < 70, safe area) ────────
     if hp < 70 and not enemies:
@@ -441,6 +461,17 @@ def _estimate_enemy_weapon_bonus(agent: dict) -> int:
     return WEAPONS.get(type_id, {}).get("bonus", 0)
 
 
+def _is_weapon_like(item: dict) -> bool:
+    """Detect weapon-like items even if category metadata is missing."""
+    if not isinstance(item, dict):
+        return False
+    type_id = (item.get("typeId") or "").lower()
+    name = (item.get("name") or "").lower()
+    weapon_keywords = ["dagger", "knife", "sword", "katana", "pistol",
+                       "sniper", "bow", "rifle", "gun"]
+    return any(keyword in type_id or keyword in name for keyword in weapon_keywords)
+
+
 # Track observed agents for memory (threat assessment)
 _known_agents: dict = {}
 
@@ -459,7 +490,7 @@ _known_agents: dict = {}
 #     return ""
 
 
-def _check_vacuum_pickup(items: list, inventory: list, region_id: str, memory_temp=None) -> dict | None:
+def _check_vacuum_pickup(items: list, inventory: list, equipped, region_id: str, memory_temp=None) -> dict | None:
     """Vacuum pickup: queue all desirable items in the current region.
     Free pickup/equip actions cost 0 EP and have no cooldown, so we can
     perform multiple sequential pickups without waiting for next turn.
@@ -480,7 +511,7 @@ def _check_vacuum_pickup(items: list, inventory: list, region_id: str, memory_te
                      and i.get("typeId", "").lower() in RECOVERY_ITEMS
                      and RECOVERY_ITEMS.get(i.get("typeId", "").lower(), 0) > 0)
 
-    scored = [(i, _pickup_score(i, inventory, heal_count)) for i in local_items]
+    scored = [(i, _pickup_score(i, inventory, heal_count, equipped)) for i in local_items]
     scored = [pair for pair in scored if pair[1] > 0]
     if not scored:
         return None
@@ -505,7 +536,7 @@ def _check_vacuum_pickup(items: list, inventory: list, region_id: str, memory_te
             "reason": f"VACUUM PICKUP: collecting {len(item_ids)} nearby items"}
 
 
-def _check_pickup(items: list, inventory: list, region_id: str, memory_temp=None) -> dict | None:
+def _check_pickup(items: list, inventory: list, equipped, region_id: str, memory_temp=None) -> dict | None:
     """Smart pickup: weapons > healing stockpile > utility > Moltz (always).
     Max inventory = 10 per limits.md.
     Strategy:
@@ -538,9 +569,9 @@ def _check_pickup(items: list, inventory: list, region_id: str, memory_temp=None
 
     # Sort by priority — Moltz always first
     local_items.sort(
-        key=lambda i: _pickup_score(i, inventory, heal_count), reverse=True)
+        key=lambda i: _pickup_score(i, inventory, heal_count, equipped), reverse=True)
     best = local_items[0]
-    score = _pickup_score(best, inventory, heal_count)
+    score = _pickup_score(best, inventory, heal_count, equipped)
     if score > 0:
         type_id = best.get('typeId', 'item')
         log.info("PICKUP: %s (score=%d, heal_stock=%d)", type_id, score, heal_count)
@@ -549,10 +580,16 @@ def _check_pickup(items: list, inventory: list, region_id: str, memory_temp=None
     return None
 
 
-def _pickup_score(item: dict, inventory: list, heal_count: int) -> int:
+def _pickup_score(item: dict, inventory: list, heal_count: int, equipped) -> int:
     """Calculate dynamic pickup score based on current inventory state."""
-    type_id = item.get("typeId", "").lower()
-    category = item.get("category", "").lower()
+    type_id = (item.get("typeId") or "").lower()
+    category = (item.get("category") or "").lower()
+    equipped_type = (equipped.get("typeId") or "").lower() if isinstance(equipped, dict) else (str(equipped or "").lower())
+    unarmed = equipped_type in {"", "fist"}
+
+    # High priority pickup if item looks like a weapon and bot has fists only
+    if unarmed and _is_weapon_like(item):
+        return 500
 
     # Moltz/sMoltz — ALWAYS pickup
     if type_id == "rewards" or category == "currency":

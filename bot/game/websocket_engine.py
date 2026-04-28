@@ -74,7 +74,7 @@ class WebSocketEngine:
         self._ping_task = None
         self._running = False
         self._map_just_used = False  # Track if Map was used for learning
-        self._vacuum_pickup_queue: list[str] = []
+        self._pickup_blacklist: set[str] = set()
         self._last_action_type: str | None = None
         # Dashboard key/name — set by heartbeat before .run()
         self.dashboard_key = agent_id  # fallback to agent_id
@@ -187,29 +187,22 @@ class WebSocketEngine:
                     if item_id and item_type in {"katana", "sniper", "sword", "pistol", "dagger", "bow", "weapon"}:
                         log.info("Pickup succeeded: auto-equip itemId=%s", item_id)
                         try:
-                            equip_payload = self.action_sender.build_action(
-                                "equip", {"itemId": item_id}, "Auto-equip picked weapon", "Equip"
-                            )
+                            equip_payload = self._build_silent_action("equip", {"itemId": item_id})
                             await self._send(equip_payload)
                         except Exception as exc:
                             log.warning("Auto-equip failed after pickup: %s", exc)
-
-                if action_name == "pickup" and self._vacuum_pickup_queue:
-                    next_item = self._vacuum_pickup_queue.pop(0)
-                    await asyncio.sleep(0.2)
-                    try:
-                        pickup_payload = self.action_sender.build_action(
-                            "pickup", {"itemId": next_item}, "VACUUM pickup", "Pickup"
-                        )
-                        await self._send(pickup_payload)
-                        log.info("VACUUM: pickup next item %s", next_item)
-                    except Exception as exc:
-                        log.warning("VACUUM: failed to send next pickup %s: %s", next_item, exc)
             else:
                 err = msg.get("error", {})
                 err_code = err.get("code", "") if isinstance(err, dict) else str(err)
                 err_msg = err.get("message", "") if isinstance(err, dict) else ""
                 log.warning("Action FAILED: %s — %s (canAct=%s)", err_code, err_msg, msg.get("canAct"))
+
+                action_name = msg.get("action") or (data.get("action") if isinstance(data, dict) else None) or self._last_action_type
+                if action_name == "pickup" and isinstance(data, dict):
+                    item_id = data.get("itemId") or data.get("item_id")
+                    if item_id:
+                        self._pickup_blacklist.add(item_id)
+                        log.warning("Blacklisted ghost pickup item: %s", item_id)
 
         # ── can_act_changed ───────────────────────────────────────────
         # Per actions.md: canAct is at TOP LEVEL
@@ -459,15 +452,15 @@ class WebSocketEngine:
 
         if action_type == "vacuum_pickup":
             item_ids = action_data.get("itemIds", []) if isinstance(action_data, dict) else []
+            item_ids = [item_id for item_id in item_ids if item_id and item_id not in self._pickup_blacklist]
             if not item_ids:
+                log.debug("VACUUM: no valid pickup items after blacklist filtering")
                 return
-            self._vacuum_pickup_queue = item_ids[1:]
-            first_item = item_ids[0]
-            payload = self.action_sender.build_action(
-                "pickup", {"itemId": first_item}, "VACUUM pickup", "Pickup"
-            )
-            await self._send(payload)
-            log.info("VACUUM: pickup first item %s | %s", first_item, reason)
+            for item_id in item_ids:
+                payload = self._build_silent_action("pickup", {"itemId": item_id})
+                await self._send(payload)
+                log.info("VACUUM: pickup item %s | %s", item_id, reason)
+                await asyncio.sleep(0.2)
             dashboard_state.update_agent(self.dashboard_key, {"last_action": f"vacuum_pickup: {reason[:60]}"})
             dashboard_state.add_log(f"vacuum_pickup: {reason[:80]}", "info", self.dashboard_key)
             return
@@ -494,6 +487,10 @@ class WebSocketEngine:
     async def _send_action(self, payload: dict):
         """Send a raw action payload (used for special server messages like captcha answers)."""
         await self._send(payload)
+
+    def _build_silent_action(self, action_type: str, data: dict) -> dict:
+        """Build a raw action payload without the thought field for silent pickup/equip."""
+        return {"type": "action", "data": {"type": action_type, **(data or {})}}
 
     async def _ping_loop(self):
         """Send ping every 15s to keep connection alive per api-summary.md."""
