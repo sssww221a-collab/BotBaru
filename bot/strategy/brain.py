@@ -587,47 +587,37 @@ def _pickup_score(item: dict, inventory: list, heal_count: int, equipped) -> int
     equipped_type = (equipped.get("typeId") or "").lower() if isinstance(equipped, dict) else (str(equipped or "").lower())
     unarmed = equipped_type in {"", "fist"}
 
-    # High priority pickup if item looks like a weapon and bot has fists only
+    # 1. SENJATA: if unarmed, any weapon-like item is top priority
     if unarmed and _is_weapon_like(item):
         return 500
 
-    # Moltz/sMoltz — ALWAYS pickup
+    # 2. MOLTZ/sMoltz — ALWAYS pickup
     if type_id == "rewards" or category == "currency":
         return 300
 
-    # Weapons: higher score if no weapon or this is better
-    if category == "weapon":
-        bonus = WEAPONS.get(type_id, {}).get("bonus", 0)
-        # Check current best weapon in inventory
-        current_best = 0
-        for inv_item in inventory:
-            if isinstance(inv_item, dict) and inv_item.get("category") == "weapon":
-                cb = WEAPONS.get(inv_item.get("typeId", "").lower(), {}).get("bonus", 0)
-                current_best = max(current_best, cb)
-        if bonus > current_best:
-            return 100 + bonus  # Better weapon = very high priority
-        return 0  # Already have equal or better
-
-    # Binoculars: passive vision+1 permanent, always pickup
-    if type_id == "binoculars":
-        has_binos = any(isinstance(i, dict) and i.get("typeId", "").lower() == "binoculars"
+    # 3. ANTI-NUMPUK UTILITY: don't take duplicates
+    singleton_utilities = {"binoculars", "map", "megaphone", "radio"}
+    if type_id in singleton_utilities:
+        has_item = any(isinstance(i, dict) and (i.get("typeId") or "").lower() == type_id
                        for i in inventory)
-        return 55 if not has_binos else 0  # Don't stack
+        return 50 if not has_item else 0
 
-    # Map: always pickup (will be used immediately)
-    if type_id == "map":
-        return 52
+    # 4. WEAPON comparison when already holding a weapon
+    if category == "weapon" or _is_weapon_like(item):
+        item_bonus = WEAPONS.get(type_id, {}).get("bonus", 0)
+        current_bonus = get_weapon_bonus(equipped)
+        if item_bonus > current_bonus:
+            return 100
+        return 0
 
-    # Healing items: stockpile for endgame (want 3-4 items)
-    if type_id in RECOVERY_ITEMS and RECOVERY_ITEMS.get(type_id, 0) > 0:
-        if heal_count < 4:  # Need more healing for endgame
-            return ITEM_PRIORITY.get(type_id, 0) + 10
-        return ITEM_PRIORITY.get(type_id, 0)  # Normal priority
+    # 5. PRIORITAS OBAT & EP: always high priority
+    if type_id in RECOVERY_ITEMS:
+        score = max(150, ITEM_PRIORITY.get(type_id, 0))
+        if heal_count < 4:
+            score += 20
+        return score
 
-    # Energy drink
-    if type_id == "energy_drink":
-        return 58
-
+    # 6. Fallback default priority
     return ITEM_PRIORITY.get(type_id, 0)
 
 
