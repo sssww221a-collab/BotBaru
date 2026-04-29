@@ -116,6 +116,7 @@ def get_weapon_range(equipped_weapon) -> int:
 _known_agents: dict = {}
 # Map knowledge: track all revealed DZ/pending DZ/safe regions after using Map
 _map_knowledge: dict = {"revealed": False, "death_zones": set(), "safe_center": []}
+_path_history: list = []
 
 
 def _resolve_region(entry, view: dict):
@@ -145,9 +146,10 @@ def _get_region_id(entry) -> str:
 
 def reset_game_state():
     """Reset per-game tracking state. Call when game ends."""
-    global _known_agents, _map_knowledge
+    global _known_agents, _map_knowledge, _path_history
     _known_agents = {}
     _map_knowledge = {"revealed": False, "death_zones": set(), "safe_center": []}
+    _path_history.clear()
     log.info("Strategy brain reset for new game")
 
 
@@ -217,8 +219,11 @@ def decide_action(view: dict, can_act: bool, memory_temp: dict = None) -> dict |
         return None  # Dead — wait for game_ended
 
     # Sistem Jejak Kaki: Tambah region_id ke history
-    if memory_temp and hasattr(memory_temp, 'add_path_history'):
-        memory_temp.add_path_history(region_id)
+    global _path_history
+    if not _path_history or _path_history[-1] != region_id:
+        _path_history.append(region_id)
+        if len(_path_history) > 10:
+            _path_history.pop(0)
 
     # ── Build FULL danger map (DZ + pending DZ) ───────────────────
     # Used by ALL movement decisions to NEVER move into danger.
@@ -595,9 +600,9 @@ def _check_pickup(items: list, inventory: list, equipped, region_id: str, memory
 
     # Sort by priority — Moltz always first
     local_items.sort(
-        key=lambda i: _pickup_score(i, inventory, heal_count, equipped), reverse=True)
+        key=lambda i: _pickup_score_wrapper(i, inventory, equipped), reverse=True)
     best = local_items[0]
-    score = _pickup_score(best, inventory, heal_count, equipped)
+    score = _pickup_score_wrapper(best, inventory, equipped)
     if score > 0:
         type_id = best.get('typeId', 'item')
         log.info("PICKUP: %s (score=%d, heal_stock=%d)", type_id, score, heal_count)
@@ -606,41 +611,58 @@ def _check_pickup(items: list, inventory: list, equipped, region_id: str, memory
     return None
 
 
-def _pickup_score(item: dict, inventory: list, heal_count: int, equipped) -> int:
-    """Calculate pickup score using Vulture Looting logic from bot15.py."""
-    if len(inventory) >= 10:
-        return 0
+def _pickup_score(self, item: dict, current_best: dict | None) -> int:
+    """Sistem Vulture Looting - Maling Rakus by Mandor!"""
+    type_id = item.get("typeId", "").lower()
+    if not type_id:
+        type_id = item.get("type", "").lower()
+        
+    # CEK KAPASITAS TAS DULU (Kalau udah 10, STOP mungut biar gak bug)
+    inv = self.agent_state.get("inventory", [])
+    if len(inv) >= 10:
+        return 0 
 
-    type_id = (item.get("typeId") or "").lower()
-    category = (item.get("category") or "").lower()
-    equipped_type = (equipped.get("typeId") or "").lower() if isinstance(equipped, dict) else ""
-    unarmed = equipped_type in {"", "fist"}
-
-    # PRIORITAS MUTLAK: sMoltz / rewards
-    if type_id == "rewards" or category == "currency":
+    # 1. UANG ADALAH RAJA (Moltz / Reward)
+    if "moltz" in type_id or "reward" in type_id:
         return 500
-
-    # PRIORITAS MUTLAK: consumables
-    if type_id in {"medkit", "bandage", "energy_drink"}:
+        
+    # 2. OBAT & STAMINA WAJIB DIAMBIL
+    consumables = ["medkit", "bandage", "energy_drink", "food", "ration"]
+    if any(c in type_id for c in consumables):
         return 400
+        
+    # 3. SENJATA (Sita dari musuh!)
+    weapons = ["dagger", "sword", "katana", "pistol", "sniper", "bow", "rifle", "gun"]
+    is_weapon = any(w in type_id for w in weapons) or item.get("category", "").lower() == "weapon"
+    if is_weapon:
+        # Kalau tangan kosong, wajib sikat!
+        if not current_best or current_best.get("typeId") == "fist":
+            return 300 
+        else:
+            # Walaupun udah punya senjata bagus, tetep ambil (skor kecil) biar musuh gak kebagian!
+            return 10
+            
+    # 4. BARANG UNIK (Jangan numpuk)
+    utilities = ["map", "binoculars", "megaphone", "radio"]
+    if any(u in type_id for u in utilities):
+        # Cek apakah di tas udah ada barang ini
+        has_item = any(i.get("typeId", "").lower() == type_id for i in inv)
+        if has_item:
+            return 0 # Udah punya, lewatin
+        return 100 # Belum punya, sikat!
+        
+    # 5. BARANG LAINNYA / TIDAK DIKENAL
+    # Kasih skor 5 agar tetep dipungut selama tas belum penuh 10/10
+    return 5
 
-    # WEAPON LOGIC
-    if category == "weapon" or _is_weapon_like(item):
-        item_bonus = WEAPONS.get(type_id, {}).get("bonus", 0)
-        current_bonus = get_weapon_bonus(equipped)
-        if unarmed:
-            return 300
-        if item_bonus > current_bonus:
-            return 300
-        return 0
 
-    # ANTI-SAMPAH: unique utilities only if not already owned
-    if type_id in {"map", "binoculars", "megaphone"}:
-        has_item = any(isinstance(i, dict) and (i.get("typeId") or "").lower() == type_id
-                       for i in inventory)
-        return 100 if not has_item else 0
+def _pickup_score_wrapper(item: dict, inventory: list, equipped) -> int:
+    class AgentState:
+        def __init__(self, inventory):
+            self.agent_state = {"inventory": inventory}
 
-    return 0
+    current_best = equipped if isinstance(equipped, dict) else {"typeId": "fist"}
+    return _pickup_score(AgentState(inventory), item, current_best)
 
 
 def _check_equip(inventory: list, equipped) -> dict | None:
@@ -874,14 +896,13 @@ def _choose_move_target(connections, danger_ids: set,
                          alive_count: int, memory_temp=None) -> str | None:
     """Choose best region to move to.
     CRITICAL: NEVER move into a death zone or pending death zone!
-    Sistem Jejak Kaki: Hindari region yang sudah dikunjungi (20 terakhir).
+    Sistem Jejak Kaki: Hindari region yang sudah dikunjungi (10 terakhir).
     """
     candidates = []
 
     # Sistem Jejak Kaki: Ambil history path
-    path_history = set()
-    if memory_temp and hasattr(memory_temp, 'get_path_history'):
-        path_history = set(memory_temp.get_path_history() or [])
+    global _path_history
+    path_history = set(_path_history)
 
     # Build set of regions with visible items for attraction
     item_regions = set()
