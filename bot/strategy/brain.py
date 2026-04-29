@@ -281,45 +281,39 @@ def decide_action(view: dict, can_act: bool, memory_temp: dict = None) -> dict |
             return {"action": "move", "data": {"regionId": safe},
                     "reason": f"GUARDIAN FLEE: HP={hp}, guardian in region, too dangerous"}
 
-    # ── Priority 2c: Emergency flee if enemy can’t be hurt or if unarmed ───
-    opponents_here = [a for a in visible_agents
-                      if a.get("isAlive", True)
-                      and a.get("id") != self_data.get("id")
-                      and a.get("regionId") == region_id
-                      and not _is_ally(a)]
-    unarmed = not equipped or (isinstance(equipped, dict)
-                                and equipped.get("typeId", "").lower() == "fist")
-    if opponents_here and (unarmed or any(
-            calc_damage(atk, get_weapon_bonus(equipped), enemy.get("def", 5), region_weather) <= 0
-            for enemy in opponents_here)):
-        safe = _find_safe_region(connections, danger_ids, view)
-        if safe:
-            log.warning("🚨 EMERGENCY FLEE! Enemy present and ineffective weapon/unarmed")
-            return {"action": "move", "data": {"regionId": safe},
-                    "reason": "EMERGENCY FLEE: enemy in same region and unable to fight safely"}
+    # ── Priority 2c: Emergency flee (Anti-Gank & Anti-Samsak) ───
+        opponents_here = [a for a in visible_agents 
+                          if a.get("isAlive", True) 
+                          and a.get("id") != self_data.get("id") 
+                          and a.get("regionId") == region_id 
+                          and not _is_ally(a)]
+        
+        equipped_type = (equipped.get("typeId") or "").lower() if isinstance(equipped, dict) else (str(equipped or "").lower())
+        unarmed = not equipped_type or equipped_type == "fist" or equipped_type == "none"
+        
+        # 3 KONDISI MENGAPA PREMAN HARUS LARI:
+        is_outnumbered = len(opponents_here) >= 2  # Dikeroyok 2 orang atau lebih
+        is_critical_threat = hp < 50 and len(opponents_here) > 0  # Darah sekarat dan ada musuh
+        
+        # Cek apakah senjata kita mempan nembus armor musuh
+        cannot_hurt = False
+        if len(opponents_here) > 0:
+            cannot_hurt = unarmed or any(calc_damage(atk, get_weapon_bonus(equipped), enemy.get("def", 5), region_weather) <= 0 for enemy in opponents_here)
 
-    # ── FREE ACTIONS (no cooldown, do before main action) ─────────
-
-    # Auto-pickup Moltz and valuable items in vacuum mode — pick all desired items immediately
-    pickup_action = _check_vacuum_pickup(visible_items, inventory, region_id, equipped, memory_temp)
-    if pickup_action:
-        return pickup_action
-
-    # Auto-equip better weapon
-    equip_action = _check_equip(inventory, equipped)
-    if equip_action:
-        return equip_action
-
-    # Use utility items: Map (reveal map), Megaphone (broadcast)
-    util_action = _use_utility_item(inventory, hp, ep, alive_count)
-    if util_action:
-        return util_action
-
-    # If cooldown active, only free actions allowed
-    if not can_act:
-        return None
-
-    # (Death zone escape already handled above as Priority 1)
+        # JIKA SALAH SATU KONDISI TERPENUHI -> LANGSUNG KABUR!
+        if is_outnumbered or is_critical_threat or cannot_hurt:
+            safe = _find_safe_region(connections, danger_ids, view)
+            if safe and ep >= move_ep_cost:
+                reason_str = "EMERGENCY FLEE: "
+                if is_outnumbered:
+                    reason_str += "Dikeroyok musuh, mundur!"
+                elif is_critical_threat:
+                    reason_str += "HP Kritis, cari aman dulu!"
+                else:
+                    reason_str += "Senjata gak mempan, kabur!"
+                
+                log.warning(f"🚨 {reason_str}")
+                return {"action": "move", "data": {"regionId": safe}, "reason": reason_str}
 
     # ── Priority 3: Healing management ─────────────────────────────
     # HP < 30 = CRITICAL: use Bandage first (30 HP), then Medkit (50 HP)
