@@ -315,6 +315,27 @@ def decide_action(view: dict, can_act: bool, memory_temp: dict = None) -> dict |
                 log.warning(f"🚨 {reason_str}")
                 return {"action": "move", "data": {"regionId": safe}, "reason": reason_str}
 
+    # ── FREE ACTIONS (no cooldown, do before main action) ─────────
+
+    # Auto-pickup Moltz and valuable items in vacuum mode — pick all desired items immediately
+    pickup_action = _check_vacuum_pickup(visible_items, inventory, equipped, region_id, memory_temp)
+    if pickup_action:
+        return pickup_action
+
+    # Auto-equip better weapon
+    equip_action = _check_equip(inventory, equipped)
+    if equip_action:
+        return equip_action
+
+    # Use utility items: Map (reveal map), Megaphone (broadcast)
+    util_action = _use_utility_item(inventory, hp, ep, alive_count)
+    if util_action:
+        return util_action
+
+    # If cooldown active, only free actions allowed
+    if not can_act:
+        return None
+
     # ── Priority 3: Healing management ─────────────────────────────
     # HP < 30 = CRITICAL: use Bandage first (30 HP), then Medkit (50 HP)
     # HP < 70 = MODERATE: use Emergency Food first (20 HP), save better items
@@ -529,8 +550,7 @@ def _check_vacuum_pickup(items: list, inventory: list, equipped, region_id: str,
     if memory_temp and hasattr(memory_temp, 'is_junk_blacklisted'):
         local_items = [i for i in local_items if not memory_temp.is_junk_blacklisted(i.get("id", ""))]
 
-    # BUG FIXED: Argumen disamakan jadi 3 saja!
-    scored = [(i, _pickup_score(i, inventory, equipped)) for i in local_items]
+    scored = [(i, _pickup_score_wrapper(i, inventory, equipped)) for i in local_items]
     scored = [pair for pair in scored if pair[1] > 0]
     if not scored:
         return None
@@ -565,15 +585,13 @@ def _check_pickup(items: list, inventory: list, equipped, region_id: str, memory
     if memory_temp and hasattr(memory_temp, 'is_junk_blacklisted'):
         local_items = [i for i in local_items if not memory_temp.is_junk_blacklisted(i.get("id", ""))]
 
-    # BUG FIXED: Argumen disamakan jadi 3 saja!
-    local_items.sort(key=lambda i: _pickup_score(i, inventory, equipped), reverse=True)
+    local_items.sort(key=lambda i: _pickup_score_wrapper(i, inventory, equipped), reverse=True)
     best = local_items[0]
-    score = _pickup_score(best, inventory, equipped)
+    score = _pickup_score_wrapper(best, inventory, equipped)
     if score > 0:
         type_id = best.get('typeId', 'item')
         return {"action": "pickup", "data": {"itemId": best["id"]}, "reason": f"PICKUP: {type_id}"}
     return None
-
 
 def _pickup_score(item: dict, inventory: list, equipped) -> int:
     """Sistem Vulture Looting - Maling Rakus by Mandor (Bebas Error)"""
