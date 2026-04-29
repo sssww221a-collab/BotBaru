@@ -522,10 +522,7 @@ _known_agents: dict = {}
 
 
 def _check_vacuum_pickup(items: list, inventory: list, equipped, region_id: str, memory_temp=None) -> dict | None:
-    """Vacuum pickup: queue all desirable items in the current region.
-    Free pickup/equip actions cost 0 EP and have no cooldown, so we can
-    perform multiple sequential pickups without waiting for next turn.
-    """
+    """Vacuum pickup: queue all desirable items in the current region."""
     if len(inventory) >= 10:
         return None
 
@@ -538,132 +535,84 @@ def _check_vacuum_pickup(items: list, inventory: list, equipped, region_id: str,
     if memory_temp and hasattr(memory_temp, 'is_junk_blacklisted'):
         local_items = [i for i in local_items if not memory_temp.is_junk_blacklisted(i.get("id", ""))]
 
-    heal_count = sum(1 for i in inventory if isinstance(i, dict)
-                     and i.get("typeId", "").lower() in RECOVERY_ITEMS
-                     and RECOVERY_ITEMS.get(i.get("typeId", "").lower(), 0) > 0)
-
-    scored = [(i, _pickup_score(i, inventory, heal_count, equipped)) for i in local_items]
+    # BUG FIXED: Argumen disamakan jadi 3 saja!
+    scored = [(i, _pickup_score(i, inventory, equipped)) for i in local_items]
     scored = [pair for pair in scored if pair[1] > 0]
     if not scored:
         return None
 
     scored.sort(key=lambda pair: pair[1], reverse=True)
     item_ids = []
-    inventory_count = len(inventory)
     for item, score in scored:
-        if inventory_count >= 10:
+        if len(inventory) + len(item_ids) >= 10:
             break
         item_id = item.get("id")
-        if not item_id:
-            continue
-        item_ids.append(item_id)
-        inventory_count += 1
+        if item_id:
+            item_ids.append(item_id)
 
     if not item_ids:
         return None
 
-    log.info("VACUUM PICKUP: %d items queued for pickup", len(item_ids))
+    log.info("VACUUM PICKUP: %d items queued", len(item_ids))
     return {"action": "vacuum_pickup", "data": {"itemIds": item_ids},
-            "reason": f"VACUUM PICKUP: collecting {len(item_ids)} nearby items"}
+            "reason": f"VACUUM PICKUP: collecting {len(item_ids)} items"}
 
 
 def _check_pickup(items: list, inventory: list, equipped, region_id: str, memory_temp=None) -> dict | None:
-    """Smart pickup: weapons > healing stockpile > utility > Moltz (always).
-    Max inventory = 10 per limits.md.
-    Strategy:
-    - Moltz ($rewards): ALWAYS pickup, highest priority
-    - Weapons: pickup if better than current OR no weapon equipped
-    - Healing: stockpile for endgame (keep at least 2-3 healing items)
-    - Binoculars: passive vision+1, always pickup
-    - Map: pickup and use immediately
-    """
+    """Smart pickup fallback."""
     if len(inventory) >= 10:
         return None
-    # Filter items in current region (items may lack regionId field)
-    local_items = [i for i in items
-                   if isinstance(i, dict) and i.get("regionId") == region_id]
-    # Fallback: if regionId filter found nothing, use all visible items
-    # (the game may not set regionId on item objects)
+    local_items = [i for i in items if isinstance(i, dict) and i.get("regionId") == region_id]
     if not local_items:
         local_items = [i for i in items if isinstance(i, dict) and i.get("id")]
     if not local_items:
         return None
 
-    # Memori Sampah: Filter out blacklisted items
     if memory_temp and hasattr(memory_temp, 'is_junk_blacklisted'):
         local_items = [i for i in local_items if not memory_temp.is_junk_blacklisted(i.get("id", ""))]
 
-    # Count current healing items for stockpile management
-    heal_count = sum(1 for i in inventory if isinstance(i, dict)
-                     and i.get("typeId", "").lower() in RECOVERY_ITEMS
-                     and RECOVERY_ITEMS.get(i.get("typeId", "").lower(), 0) > 0)
-
-    # Sort by priority — Moltz always first
-    local_items.sort(
-        key=lambda i: _pickup_score_wrapper(i, inventory, equipped), reverse=True)
+    # BUG FIXED: Argumen disamakan jadi 3 saja!
+    local_items.sort(key=lambda i: _pickup_score(i, inventory, equipped), reverse=True)
     best = local_items[0]
-    score = _pickup_score_wrapper(best, inventory, equipped)
+    score = _pickup_score(best, inventory, equipped)
     if score > 0:
         type_id = best.get('typeId', 'item')
-        log.info("PICKUP: %s (score=%d, heal_stock=%d)", type_id, score, heal_count)
-        return {"action": "pickup", "data": {"itemId": best["id"]},
-                "reason": f"PICKUP: {type_id}"}
+        return {"action": "pickup", "data": {"itemId": best["id"]}, "reason": f"PICKUP: {type_id}"}
     return None
 
 
-def _pickup_score(self, item: dict, current_best: dict | None) -> int:
-    """Sistem Vulture Looting - Maling Rakus by Mandor!"""
-    type_id = item.get("typeId", "").lower()
-    if not type_id:
-        type_id = item.get("type", "").lower()
+def _pickup_score(item: dict, inventory: list, equipped) -> int:
+    """Sistem Vulture Looting - Maling Rakus by Mandor (Bebas Error)"""
+    # BUG FIXED: Pengecekan NoneType yang bikin error
+    type_id = (item.get("typeId") or item.get("type") or "").lower()
         
-    # CEK KAPASITAS TAS DULU (Kalau udah 10, STOP mungut biar gak bug)
-    inv = self.agent_state.get("inventory", [])
-    if len(inv) >= 10:
+    if len(inventory) >= 10:
         return 0 
 
-    # 1. UANG ADALAH RAJA (Moltz / Reward)
     if "moltz" in type_id or "reward" in type_id:
         return 500
         
-    # 2. OBAT & STAMINA WAJIB DIAMBIL
     consumables = ["medkit", "bandage", "energy_drink", "food", "ration"]
     if any(c in type_id for c in consumables):
         return 400
         
-    # 3. SENJATA (Sita dari musuh!)
     weapons = ["dagger", "sword", "katana", "pistol", "sniper", "bow", "rifle", "gun"]
     is_weapon = any(w in type_id for w in weapons) or item.get("category", "").lower() == "weapon"
     if is_weapon:
-        # Kalau tangan kosong, wajib sikat!
-        if not current_best or current_best.get("typeId") == "fist":
+        equipped_type = (equipped.get("typeId") or "").lower() if isinstance(equipped, dict) else (str(equipped or "").lower())
+        if not equipped_type or equipped_type == "fist" or equipped_type == "none":
             return 300 
         else:
-            # Walaupun udah punya senjata bagus, tetep ambil (skor kecil) biar musuh gak kebagian!
             return 10
             
-    # 4. BARANG UNIK (Jangan numpuk)
     utilities = ["map", "binoculars", "megaphone", "radio"]
     if any(u in type_id for u in utilities):
-        # Cek apakah di tas udah ada barang ini
-        has_item = any(i.get("typeId", "").lower() == type_id for i in inv)
+        has_item = any(i.get("typeId", "").lower() == type_id for i in inventory if isinstance(i, dict))
         if has_item:
-            return 0 # Udah punya, lewatin
-        return 100 # Belum punya, sikat!
+            return 0 
+        return 100 
         
-    # 5. BARANG LAINNYA / TIDAK DIKENAL
-    # Kasih skor 5 agar tetep dipungut selama tas belum penuh 10/10
     return 5
-
-
-def _pickup_score_wrapper(item: dict, inventory: list, equipped) -> int:
-    class AgentState:
-        def __init__(self, inventory):
-            self.agent_state = {"inventory": inventory}
-
-    current_best = equipped if isinstance(equipped, dict) else {"typeId": "fist"}
-    return _pickup_score(AgentState(inventory), item, current_best)
-
 
 def _check_equip(inventory: list, equipped) -> dict | None:
     """Auto-equip best weapon from inventory."""
